@@ -95,7 +95,12 @@ bash scripts/06_setup_tunnel_sudoers.sh --start-tunnel   # 之后可免密后台
 
 ## 三、按需接入（Skill 推荐方式）
 
-不要把 `ios_ui_automation` 同时注册到 Codex、TRAE、OpenCode 的全局 MCP 配置；这会让每个普通会话都初始化或携带工具定义。全局 Skill 位于 `~/.agents/skills/ios-change-verification`，触发后使用同一套本地桥接命令：
+不要把 `ios_ui_automation` 同时注册到 Codex、TRAE、OpenCode 的全局 MCP 配置；这会让每个普通会话都初始化或携带工具定义。仓库内 `skills/ios-change-verification/` 是可版本管理的 Skill 源码；安装到 `~/.agents/skills/ios-change-verification` 后，触发 Skill 即可按需调用同一套本地桥接命令：
+
+```bash
+mkdir -p ~/.agents/skills
+cp -R skills/ios-change-verification ~/.agents/skills/
+```
 
 ```bash
 PY=~/Documents/ios-verification-toolkit/mcp_server/.venv/bin/python
@@ -168,6 +173,8 @@ ios-verification-toolkit/
 ├── tools/                          # 不依赖 WDA 的独立运行时工具
 │   ├── ios_log_tool.py             #   idevicesyslog 轻量日志 session
 │   └── ios_app_tool.py             #   xcodebuild/devicectl 编译、安装、启动
+├── skills/
+│   └── ios-change-verification/    # 可安装的 Codex Skill 源码与按需 UI 桥接器
 └── mcp_server/                     # MCP Server 本体
     ├── server.py                   #   7 个 UI tool,只连 Appium/WDA
     ├── device_discovery.py         #   实时发现并安全选择当前连接的 iOS 真机

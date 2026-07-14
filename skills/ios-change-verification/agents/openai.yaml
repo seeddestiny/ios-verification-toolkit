@@ -1,0 +1,4 @@
+interface:
+  display_name: "iOS 改动验证"
+  short_description: "分离日志、App 本地运行与 WDA UI 的渐进式 iOS 验证"
+  default_prompt: "使用 $ios-change-verification 先完成全局静态检查与本地基线编译，再以独立日志工具和 App 工具执行场景，仅在需要 UI 操作时启动 ios_ui_automation MCP。"
