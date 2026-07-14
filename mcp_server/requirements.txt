@@ -1,0 +1,5 @@
+# ios_ui_automation MCP Server 依赖
+# 说明:mcp 官方 v2 仍为 pre-release(README 明确"不要用于生产"),
+#       这里锁定稳定的 v1.x 线(使用 mcp.server.fastmcp.FastMCP)。
+mcp>=1.27,<2
+requests>=2.28

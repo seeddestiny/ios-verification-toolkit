@@ -1,0 +1,14 @@
+{
+  "capabilities": {
+    "alwaysMatch": {
+      "platformName": "iOS",
+      "appium:automationName": "XCUITest",
+      "appium:xcodeSigningId": "Apple Development",
+      "appium:showXcodeLog": false,
+      "appium:usePrebuiltWDA": false,
+      "appium:noReset": true,
+      "appium:newCommandTimeout": 300
+    },
+    "firstMatch": [{}]
+  }
+}

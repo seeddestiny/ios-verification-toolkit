@@ -1,0 +1,20 @@
+{
+  "//": "MCP 客户端接入配置样例。把本段合并到你的 MCP 客户端配置里(如 TRAE/Claude 的 mcp 配置)。",
+  "//path": "command 使用本工程隔离 venv；复制到其他电脑时按实际仓库位置修改绝对路径。",
+  "//device": "默认运行时发现当前连接的物理 iPhone/iPad；多台时才设置 IOS_MCP_UDID 或 IOS_MCP_DEVICE_NAME 消歧。",
+  "//wda": "WDA bundle ID 默认按当前 Mac 的稳定硬件标识哈希生成；仅兼容旧 WDA 时才显式设置 IOS_MCP_WDA_BUNDLE_ID。",
+  "//signing": "优先复用既有 WDA 签名团队；仍有多个候选时才设置 IOS_MCP_TEAM_ID。",
+  "//runtime": "运行时产物默认进入项目 .runtime/；需要仓库外目录时可设置 IOS_MCP_RUNTIME_DIR 为绝对路径。",
+  "mcpServers": {
+    "ios_ui_automation": {
+      "command": "<PROJECT_ROOT>/mcp_server/.venv/bin/python",
+      "args": [
+        "<PROJECT_ROOT>/mcp_server/server.py"
+      ],
+      "env": {
+        "IOS_MCP_APPIUM_HOST": "127.0.0.1",
+        "IOS_MCP_APPIUM_PORT": "4723"
+      }
+    }
+  }
+}
