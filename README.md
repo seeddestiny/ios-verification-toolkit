@@ -42,6 +42,8 @@ export IOS_MCP_TARGET_BUNDLE="<TARGET_APP_BUNDLE_ID>"
 export IOS_MCP_TARGET_LABELS="<LABEL_1>,<LABEL_2>"
 ```
 
+npm 源按以下顺序选择：`IOS_MCP_NPM_REGISTRY` → 本机 `npm config get registry`。如果本机已经配置公司镜像，安装脚本会自动优先复用，无需把内部域名或认证写入仓库；只有显式设置 `ALLOW_PUBLIC_NPM=1` 时，才允许使用公网 npm 或在可信镜像缺包时回退。
+
 > ⚠️ **设备 UDID 不写入配置**：每次启动时通过 `devicectl` 发现当前连接的物理 iPhone/iPad。单台自动选择；零台报错；多台时 Skill 会用自然语言列出全部候选并等待用户回复序号、设备名称或硬件 UDID，再用 `IOS_MCP_UDID`、`IOS_MCP_DEVICE_NAME`、`--udid` 或 `--device-name` 消歧，绝不静默取第一台。
 > - Apple Team ID 不写入项目：优先复用本机既有 WDA 构建的签名团队；否则单一开发团队自动发现，仍有歧义时才通过 `IOS_MCP_TEAM_ID` 显式选择。
 > - `updatedWDABundleId` 默认由当前 Mac 的稳定硬件标识哈希实时组装；原始硬件 UUID 不写入配置或日志。同一台 Mac 保持一致，不同 Mac 自动得到不同 ID。只有兼容已有 WDA 时才显式设置 `IOS_MCP_WDA_BUNDLE_ID` 覆盖。
@@ -193,7 +195,7 @@ ios-verification-toolkit/
 
 - **网络**:Appium 强制 `--address 127.0.0.1`(默认 0.0.0.0 对外暴露,已覆盖),他人连不进。
 - **不安全特性**:不加 `--relaxed-security` / `--allow-insecure`,保持默认关闭。
-- **供应链**:镜像地址不写入项目；npm 使用 `IOS_MCP_NPM_REGISTRY` 或本机配置，pip 使用 `IOS_MCP_PYPI`/`PIP_INDEX_URL`；不 sudo 装 npm 全局包，MCP 依赖装在隔离 venv。
+- **供应链**:内部镜像地址和认证不写入项目；npm 按 `IOS_MCP_NPM_REGISTRY`、本机配置的顺序选择，公网源必须通过 `ALLOW_PUBLIC_NPM=1` 显式授权；pip 使用 `IOS_MCP_PYPI`/`PIP_INDEX_URL`。不 sudo 装 npm 全局包，MCP 依赖装在隔离 venv。
 - **运行时产物**:日志、构建/安装结果、截图和状态统一落在本地 `.runtime/`；根目录及子目录为 `0700`，工具直接创建的日志/JSON/截图为 `0600`，DerivedData 由 `0700` 祖先目录隔离；`.runtime/` 整体已加入 `.gitignore`，不外传。
 - **隧道免密**:若配置 NOPASSWD,仅对 `tunnel-creation` 一条命令免密,不全局放开 sudo。
 
