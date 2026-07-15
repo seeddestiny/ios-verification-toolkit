@@ -11,7 +11,8 @@
 #   4. ~/.npmrc 安全检查(不打印内容)
 #   5. 设备上的 WDA App(WebDriverAgentRunner,运行时临时装的)
 #   6. 本工程产生的运行时缓存(截图 / 日志 / 临时文件)
-#   7.(可选)libimobiledevice —— 默认保留,加 --purge-brew 才卸
+#   7. 指向本仓库的共享 Skill 安装链接
+#   8.(可选)libimobiledevice —— 默认保留,加 --purge-brew 才卸
 #
 # 用法:
 #   bash 99_uninstall_cleanup.sh                # 交互式,逐项确认
@@ -199,9 +200,28 @@ clean_mcp_venv() {
   fi
 }
 
-# ── 7.(可选)卸载 libimobiledevice ──────────────────────────────────────────
+# ── 7. 清理指向本仓库的共享 Skill 安装链接 ────────────────────────────────
+clean_skill_link() {
+  c_step "7. 清理共享 Skill 安装链接"
+  local target="$HOME/.agents/skills/ios-change-verification"
+  if [ ! -L "$target" ] && [ ! -e "$target" ]; then
+    c_ok "共享 Skill 安装链接不存在。"
+    return 0
+  fi
+  if ! bash "$PROJECT_DIR/scripts/07_install_skill.sh" --check >/dev/null 2>&1; then
+    c_warn "目标不是本安装器创建的当前仓库链接，保留不动: $target"
+    return 0
+  fi
+  if confirm "删除共享 Skill 安装链接: $target ?"; then
+    run "bash \"$PROJECT_DIR/scripts/07_install_skill.sh\" --uninstall"
+  else
+    c_info "保留共享 Skill 安装链接。"
+  fi
+}
+
+# ── 8.(可选)卸载 libimobiledevice ──────────────────────────────────────────
 remove_brew_pkgs() {
-  c_step "7. (可选)卸载 libimobiledevice"
+  c_step "8. (可选)卸载 libimobiledevice"
   if [ "$PURGE_BREW" != "1" ]; then
     c_info "默认保留 libimobiledevice(其它工具可能也在用)。如需卸载请加 --purge-brew。"
     return 0
@@ -222,6 +242,7 @@ summary() {
   printf "  ~/.appium       : %s\n" "$([ -d "$HOME/.appium" ] && echo 仍在 || echo 已移除)"
   printf "  npm registry    : 未回显(避免泄漏本机源地址)\n"
   printf "  ~/.npmrc        : %s\n" "$([ -f "$HOME/.npmrc" ] && echo 存在 || echo 不存在)"
+  printf "  shared Skill    : %s\n" "$([ -e "$HOME/.agents/skills/ios-change-verification/SKILL.md" ] && echo 仍在 || echo 已移除)"
   printf "  idevicesyslog   : %s\n" "$(command -v idevicesyslog >/dev/null 2>&1 && echo 仍在 || echo 已移除)"
   echo
   c_ok "清理完成。Xcode / 签名证书 / node 本身均未触碰。"
@@ -253,6 +274,7 @@ main() {
   remove_wda_on_device
   clean_project_runtime
   clean_mcp_venv
+  clean_skill_link
   remove_brew_pkgs
   summary
 }

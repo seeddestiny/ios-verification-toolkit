@@ -21,6 +21,7 @@
 #   4 建立 RemoteXPC 隧道(iOS17+真机必需)                (人工:sudo 常驻)
 #   5 安装 MCP Server 依赖(venv)                          (自动)
 #   6 端到端验证:MCP 驱动真机 截图/可选目标 App/界面图层  (自动)
+#   7 安装 Codex / TRAE CLI 共用 Skill                    (自动;不注册全局 MCP)
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 umask 077
@@ -119,6 +120,7 @@ stage4_tunnel_up(){
     >/dev/null 2>&1
 }
 stage5_done(){ [ -x "$VENV_PY" ] && "$VENV_PY" -c "import mcp,requests" >/dev/null 2>&1; }
+stage7_done(){ bash "$DIR/07_install_skill.sh" --check >/dev/null 2>&1; }
 
 # ── 阶段 1:安装 Appium ──────────────────────────────────────────────────────
 run_stage1(){
@@ -328,6 +330,14 @@ run_stage6_verify(){
   fi
 }
 
+# ── 阶段 7:安装共享 Skill ──────────────────────────────────────────────────
+run_stage7_skill(){
+  c_step "阶段 7 / 安装 Codex + TRAE CLI 共用 Skill"
+  if stage7_done; then c_ok "共享 Skill 已安装,跳过。"; return 0; fi
+  bash "$DIR/07_install_skill.sh" || { c_err "共享 Skill 安装失败"; exit 1; }
+  stage7_done && c_ok "阶段7完成。" || { c_err "共享 Skill 安装后校验未通过。"; exit 1; }
+}
+
 show_status(){
   c_step "各阶段状态"
   c_info "本轮动态选择目标设备硬件 UDID: $DEVICE_UDID"
@@ -336,6 +346,7 @@ show_status(){
   c_info                 "阶段3 设备信任: 运行时探测"
   stage4_tunnel_up && c_ok "阶段4 RemoteXPC 隧道: 运行中"          || c_warn "阶段4 隧道: 未运行(需 sudo 常驻)"
   stage5_done      && c_ok "阶段5 MCP 依赖: 已就绪"                || c_warn "阶段5: 未完成"
+  stage7_done      && c_ok "阶段7 共享 Skill: 已安装"              || c_warn "阶段7: 未安装"
   echo; c_info "运行时目录: $RUNTIME_ROOT"
   c_info "截图目录: $SCREENSHOT_DIR"
   ls -1 "$SCREENSHOT_DIR" 2>/dev/null | sed 's/^/    /' || true
@@ -360,7 +371,8 @@ c_info "本轮动态选择目标设备硬件 UDID: $DEVICE_UDID"
 [ "$FROM" -le 4 ] && run_stage4_tunnel
 [ "$FROM" -le 5 ] && run_stage5_mcp
 [ "$FROM" -le 6 ] && run_stage6_verify
+[ "$FROM" -le 7 ] && run_stage7_skill
 
 c_step "全流程结束"
 show_status
-c_ok "MCP 已就绪。推荐由 ~/.agents/skills/ios-change-verification 按需启动，不要注册到 Agent 全局配置。"
+c_ok "MCP 与共享 Skill 已就绪。Codex / TRAE CLI 可按需使用，不要注册到 Agent 全局 MCP 配置。"
