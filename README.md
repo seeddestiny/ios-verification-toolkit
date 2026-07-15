@@ -30,9 +30,10 @@ cd ~/Documents/ios-verification-toolkit
 bash scripts/run_all.sh
 ```
 
-安装源和多团队签名均通过环境变量配置，不在项目中保存真实值：
+安装源支持环境变量和机器本地配置；仓库仅提供 npm 官方公网默认值，不保存认证信息、内部 PyPI 地址或机器私有值：
 
 ```bash
+# 可选覆盖；不设置时 npm 优先读取本机配置，最后使用官方源；PyPI 读取本机配置：
 export IOS_MCP_NPM_REGISTRY="<TRUSTED_NPM_REGISTRY>"
 export IOS_MCP_PYPI="<TRUSTED_PYPI_INDEX>"
 # 仅当本机存在多个 Apple Development 团队时需要：
@@ -42,7 +43,9 @@ export IOS_MCP_TARGET_BUNDLE="<TARGET_APP_BUNDLE_ID>"
 export IOS_MCP_TARGET_LABELS="<LABEL_1>,<LABEL_2>"
 ```
 
-npm 源按以下顺序选择：`IOS_MCP_NPM_REGISTRY` → 本机 `npm config get registry`。如果本机已经配置公司镜像，安装脚本会自动优先复用，无需把内部域名或认证写入仓库；只有显式设置 `ALLOW_PUBLIC_NPM=1` 时，才允许使用公网 npm 或在可信镜像缺包时回退。
+npm 源按以下顺序选择：`IOS_MCP_NPM_REGISTRY` → `npm_config_registry` / `NPM_CONFIG_REGISTRY` → 本机 `npm config get registry` 的当前有效配置 → npm 官方源 `https://registry.npmjs.org/`。因此用户机器已经配置自己的源时会优先使用，仓库不保存任何公司内部 npm 域名。registry URL 不得内嵌凭据，非 HTTPS 源需显式设置 `ALLOW_INSECURE_NPM=1`。使用自定义源安装 XCUITest 驱动失败时不会静默混用第二个源；只有显式设置 `ALLOW_PUBLIC_NPM=1` 才允许该命令临时回退到官方公网源。
+
+PyPI 只安装 Python MCP 适配层的 `mcp` 与 `requests`，不承载 WDA。它按 `IOS_MCP_PYPI` → `PIP_INDEX_URL` → 本机 pip 配置的顺序选择，不在仓库内置内部 PyPI 地址，也不会静默回退公网；没有本机可信源时必须显式设置 `ALLOW_PUBLIC_PYPI=1`。源 URL 不得内嵌凭据，非 HTTPS 源还需显式设置 `ALLOW_INSECURE_PYPI=1`；为避免依赖混淆，检测到 `extra-index-url` 会直接停止。安装使用不继承系统包的 venv，只接受 wheel，且不会升级 pip。若要彻底只使用 npm，需要把 Python MCP Server/Bridge 改写为 Node/TypeScript，不能直接从 npm 安装 Python 包替代。
 
 > ⚠️ **设备 UDID 不写入配置**：每次启动时通过 `devicectl` 发现当前连接的物理 iPhone/iPad。单台自动选择；零台报错；多台时 Skill 会用自然语言列出全部候选并等待用户回复序号、设备名称或硬件 UDID，再用 `IOS_MCP_UDID`、`IOS_MCP_DEVICE_NAME`、`--udid` 或 `--device-name` 消歧，绝不静默取第一台。
 > - Apple Team ID 不写入项目：优先复用本机既有 WDA 构建的签名团队；否则单一开发团队自动发现，仍有歧义时才通过 `IOS_MCP_TEAM_ID` 显式选择。
@@ -60,11 +63,11 @@ npm 源按以下顺序选择：`IOS_MCP_NPM_REGISTRY` → 本机 `npm config get
 
 | 阶段 | 内容 | 是否人工 |
 |---|---|---|
-| 1 | 安装 Appium + xcuitest 驱动 + libimobiledevice | 自动(使用 `IOS_MCP_NPM_REGISTRY` 或本机已有 npm 源) |
+| 1 | 安装 Appium + xcuitest 驱动 + libimobiledevice | 自动(用户环境/本机 npm 当前有效配置优先，否则使用官方源) |
 | 2 | WDA 签名构建到真机 | 自动;失败会引导你在 **Xcode 登录账号 + 勾选自动签名** |
 | 3 | 设备信任证书 + 开启 UI 自动化 | **人工**:iPhone 上信任证书 + 打开 Enable UI Automation |
 | 4 | 建立 RemoteXPC 隧道(iOS17+ 必需) | **人工**:另开终端按目标 UDID 启动 `tunnel-creation`(常驻) |
-| 5 | 安装 MCP Server 依赖(venv) | 自动(使用 `IOS_MCP_PYPI` 或本机 `PIP_INDEX_URL`) |
+| 5 | 安装 MCP Server 依赖(venv) | 自动(使用环境变量或机器本地 pip 配置的单一可信源) |
 | 6 | MCP 端到端验证(截图/可选目标 App/界面图层) | 自动 |
 
 查看进度:`bash scripts/run_all.sh --status`
@@ -195,7 +198,7 @@ ios-verification-toolkit/
 
 - **网络**:Appium 强制 `--address 127.0.0.1`(默认 0.0.0.0 对外暴露,已覆盖),他人连不进。
 - **不安全特性**:不加 `--relaxed-security` / `--allow-insecure`,保持默认关闭。
-- **供应链**:内部镜像地址和认证不写入项目；npm 按 `IOS_MCP_NPM_REGISTRY`、本机配置的顺序选择，公网源必须通过 `ALLOW_PUBLIC_NPM=1` 显式授权；pip 使用 `IOS_MCP_PYPI`/`PIP_INDEX_URL`。不 sudo 装 npm 全局包，MCP 依赖装在隔离 venv。
+- **供应链**:npm 优先使用用户环境或本机当前有效配置，否则使用 npm 官方源；仓库不内置公司 npm 域名。自定义源缺包时必须通过 `ALLOW_PUBLIC_NPM=1` 才能临时回退官方源。pip 仅使用 `IOS_MCP_PYPI`、`PIP_INDEX_URL` 或机器本地配置解析出的单一源，不内置内部 PyPI、不静默公网回退、不接受 URL 内嵌凭据。Appium 不使用 sudo 全局安装，MCP Python 依赖装在隔离 venv。
 - **运行时产物**:日志、构建/安装结果、截图和状态统一落在本地 `.runtime/`；根目录及子目录为 `0700`，工具直接创建的日志/JSON/截图为 `0600`，DerivedData 由 `0700` 祖先目录隔离；`.runtime/` 整体已加入 `.gitignore`，不外传。
 - **隧道免密**:若配置 NOPASSWD,仅对 `tunnel-creation` 一条命令免密,不全局放开 sudo。
 

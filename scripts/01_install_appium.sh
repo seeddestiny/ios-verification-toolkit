@@ -5,7 +5,7 @@
 # 第一步:安装 Appium + XCUITest 驱动 + libimobiledevice(真机日志用)。
 #
 # 设计原则(严格保密 / 供应链安全):
-#   1. 优先使用用户显式配置或本机已有的可信 npm 镜像，不把源地址写入项目。
+#   1. 优先使用用户显式环境变量或本机 npm 当前有效配置；否则使用 npm 官方源。
 #   2. 全程不使用 sudo 安装 npm 全局包(避免给安装脚本 root 权限)。
 #   3. WDA(WebDriverAgent)采用"运行时临时安装"策略:本脚本只安装 xcuitest
 #      驱动(内含 WDA 源码),不在此构建/签名 WDA。WDA 入口见文件末尾 install_wda()。
@@ -21,8 +21,9 @@
 set -euo pipefail
 
 # ── 可配置项 ────────────────────────────────────────────────────────────────
-TRUSTED_REGISTRY="${IOS_MCP_NPM_REGISTRY:-}"
 PUBLIC_REGISTRY="https://registry.npmjs.org/"
+TRUSTED_REGISTRY=""
+REGISTRY_SOURCE=""
 APPIUM_DRIVER="xcuitest"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -74,27 +75,60 @@ check_prereqs() {
   [ "$ok" = "1" ] || { c_err "前置工具缺失,终止。"; exit 1; }
 }
 
-# ── 1. npm 源:显式环境变量优先，否则复用本机当前配置 ────────────────────────
+# ── 1. npm 源:用户环境/本机当前有效配置优先，否则使用 npm 官方源 ────────────
 # 只对本脚本子进程设置 npm_config_registry，不修改 ~/.npmrc。
+resolve_registry() {
+  local current=""
+  if [ -n "${IOS_MCP_NPM_REGISTRY:-}" ]; then
+    TRUSTED_REGISTRY="$IOS_MCP_NPM_REGISTRY"
+    REGISTRY_SOURCE="IOS_MCP_NPM_REGISTRY"
+  elif [ -n "${npm_config_registry:-}" ]; then
+    TRUSTED_REGISTRY="$npm_config_registry"
+    REGISTRY_SOURCE="npm_config_registry"
+  elif [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
+    TRUSTED_REGISTRY="$NPM_CONFIG_REGISTRY"
+    REGISTRY_SOURCE="NPM_CONFIG_REGISTRY"
+  else
+    current="$(npm config get registry 2>/dev/null || true)"
+    if [ -n "$current" ] && [ "$current" != "unknown" ]; then
+      TRUSTED_REGISTRY="$current"
+      REGISTRY_SOURCE="本机 npm 当前有效配置"
+    else
+      TRUSTED_REGISTRY="$PUBLIC_REGISTRY"
+      REGISTRY_SOURCE="npm 官方默认源"
+    fi
+  fi
+}
+
 setup_registry() {
   c_step "1. 配置 npm 源(供应链安全)"
+  local metadata scheme host has_credentials
 
-  local current
-  current="$(npm config get registry 2>/dev/null || echo unknown)"
-  if [ -z "$TRUSTED_REGISTRY" ]; then TRUSTED_REGISTRY="$current"; fi
+  resolve_registry
   if [ -z "$TRUSTED_REGISTRY" ] || [ "$TRUSTED_REGISTRY" = "unknown" ]; then
     c_err "未找到可信 npm 源。请设置 IOS_MCP_NPM_REGISTRY 后重试。"
     exit 1
   fi
 
-  if [ "$TRUSTED_REGISTRY" = "$PUBLIC_REGISTRY" ] || [ "$TRUSTED_REGISTRY/" = "$PUBLIC_REGISTRY" ]; then
-    if [ "${ALLOW_PUBLIC_NPM:-0}" != "1" ]; then
-      c_err "当前为公网 npm 源；脚本不会静默使用。确认后设置 ALLOW_PUBLIC_NPM=1。"
-      exit 1
-    fi
-    c_warn "已显式允许本轮使用公网 npm 源。"
+  metadata="$(REGISTRY_URL="$TRUSTED_REGISTRY" node -e '
+try {
+  const value = new URL(process.env.REGISTRY_URL);
+  console.log([value.protocol.replace(":", ""), value.hostname, value.username || value.password ? "1" : "0"].join("\t"));
+} catch (_) {
+  process.exit(2);
+}
+' 2>/dev/null || true)"
+  IFS=$'\t' read -r scheme host has_credentials <<< "$metadata"
+  [ -n "$host" ] && { [ "$scheme" = "https" ] || [ "$scheme" = "http" ]; } \
+    || { c_err "解析到的 npm registry 不是合法 HTTP(S) URL"; exit 1; }
+  [ "$has_credentials" = "0" ] \
+    || { c_err "npm registry URL 不得内嵌账号或令牌；请使用本机 npm 认证配置。"; exit 1; }
+  if [ "$scheme" != "https" ] && [ "${ALLOW_INSECURE_NPM:-0}" != "1" ]; then
+    c_err "npm registry 不是 HTTPS；确认受信网络后才可显式设置 ALLOW_INSECURE_NPM=1。"
+    exit 1
   fi
 
+  c_info "npm 源选择: $REGISTRY_SOURCE(不回显地址)"
   c_info "探测本轮可信 npm 源的 Appium 元数据"
   local body
   if body="$(curl -fsS --connect-timeout 5 --max-time 10 "${TRUSTED_REGISTRY%/}/appium" 2>/dev/null)" \
@@ -141,6 +175,11 @@ install_xcuitest_driver() {
     return 0
   fi
 
+  if [ "${TRUSTED_REGISTRY%/}" = "${PUBLIC_REGISTRY%/}" ]; then
+    c_err "npm 官方源安装失败；没有其它源可安全回退。"
+    [ "$DRY_RUN" = "1" ] || exit 1
+    return
+  fi
   if [ "${ALLOW_PUBLIC_NPM:-0}" != "1" ]; then
     c_err "可信源安装失败；未授权公网 fallback。设置 ALLOW_PUBLIC_NPM=1 后可重试。"
     [ "$DRY_RUN" = "1" ] || exit 1
@@ -227,4 +266,6 @@ main() {
   summary
 }
 
-main "$@"
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
