@@ -2,8 +2,8 @@
 #
 # 05_install_mcp.sh — 安装 MCP Server 的 Python 依赖(mcp SDK + requests)
 # ─────────────────────────────────────────────────────────────────────────────
-# 供应链安全:按 IOS_MCP_PYPI、PIP_INDEX_URL、本机 pip 配置的顺序选择单一可信源，
-#            不在仓库内置内部 PyPI，也不把源地址写入项目或全局 pip 配置。
+# 供应链安全:优先使用 PIP_INDEX_URL 或本机 pip 配置，其次使用项目级候选，
+#            都未配置时使用官方 PyPI；始终只使用单一源且不修改用户配置。
 #
 # 用法:
 #   bash 05_install_mcp.sh            # 安装依赖(推荐建虚拟环境)
@@ -55,12 +55,9 @@ configured_pypi_extra_index(){
 
 resolve_pypi(){
   local configured=""
-  if [ -n "${IOS_MCP_PYPI:-}" ]; then
-    TRUSTED_PYPI="$IOS_MCP_PYPI"
-    PYPI_SOURCE="IOS_MCP_PYPI"
-  elif [ -n "${PIP_INDEX_URL:-}" ]; then
+  if [ -n "${PIP_INDEX_URL:-}" ]; then
     TRUSTED_PYPI="$PIP_INDEX_URL"
-    PYPI_SOURCE="PIP_INDEX_URL"
+    PYPI_SOURCE="用户环境 PIP_INDEX_URL"
   else
     configured="$(configured_pypi_index)"
     if [ -n "$configured" ]; then
@@ -68,28 +65,20 @@ resolve_pypi(){
       PYPI_SOURCE="本机 pip 配置"
     fi
   fi
+
+  if [ -z "$TRUSTED_PYPI" ] && [ -n "${IOS_MCP_PYPI:-}" ]; then
+    TRUSTED_PYPI="$IOS_MCP_PYPI"
+    PYPI_SOURCE="IOS_MCP_PYPI"
+  elif [ -z "$TRUSTED_PYPI" ]; then
+    TRUSTED_PYPI="$PUBLIC_PYPI"
+    PYPI_SOURCE="PyPI 官方默认源"
+  fi
 }
 
 detect_pypi(){
   c_step "探测可信 PyPI 镜像(供应链安全)"
   local metadata scheme host has_credentials code extra_index
   resolve_pypi
-  if [ -z "$TRUSTED_PYPI" ]; then
-    if [ "${ALLOW_PUBLIC_PYPI:-0}" = "1" ]; then
-      c_warn "未配置可信镜像；已显式允许 pip 使用其默认公网源。"
-      TRUSTED_PYPI="$PUBLIC_PYPI"
-      PYPI_SOURCE="显式授权的公网 PyPI"
-    else
-      c_err "未配置可信 PyPI。请使用 IOS_MCP_PYPI、PIP_INDEX_URL 或本机 pip 配置；也可显式设置 ALLOW_PUBLIC_PYPI=1。"
-      exit 1
-    fi
-  fi
-
-  if [ "${TRUSTED_PYPI%/}" = "${PUBLIC_PYPI%/}" ] \
-    && [ "${ALLOW_PUBLIC_PYPI:-0}" != "1" ]; then
-    c_err "当前解析为公网 PyPI；脚本不会静默使用。确认后设置 ALLOW_PUBLIC_PYPI=1。"
-    exit 1
-  fi
 
   extra_index="${PIP_EXTRA_INDEX_URL:-$(configured_pypi_extra_index)}"
   if [ -n "$extra_index" ]; then
@@ -129,7 +118,7 @@ except Exception:
     c_ok "可信 PyPI 可达 (HTTP $code)"
   else
     c_warn "可信 PyPI 不可达 (HTTP ${code:-000})。"
-    c_err "不会切换到其它源；请修复本机配置或显式指定 IOS_MCP_PYPI。"
+    c_err "不会切换到其它源；请修复本机配置后重试。"
     exit 1
   fi
   export PIP_INDEX_URL="$TRUSTED_PYPI"
