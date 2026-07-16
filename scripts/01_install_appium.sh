@@ -5,7 +5,7 @@
 # 第一步:安装 Appium + XCUITest 驱动 + libimobiledevice(真机日志用)。
 #
 # 设计原则(严格保密 / 供应链安全):
-#   1. 优先使用用户显式环境变量或本机 npm 当前有效配置；否则使用 npm 官方源。
+#   1. 优先使用用户现有 npm 配置；未显式配置时才使用项目变量或 npm 官方源。
 #   2. 全程不使用 sudo 安装 npm 全局包(避免给安装脚本 root 权限)。
 #   3. WDA(WebDriverAgent)采用"运行时临时安装"策略:本脚本只安装 xcuitest
 #      驱动(内含 WDA 源码),不在此构建/签名 WDA。WDA 入口见文件末尾 install_wda()。
@@ -75,28 +75,51 @@ check_prereqs() {
   [ "$ok" = "1" ] || { c_err "前置工具缺失,终止。"; exit 1; }
 }
 
-# ── 1. npm 源:用户环境/本机当前有效配置优先，否则使用 npm 官方源 ────────────
+# ── 1. npm 源:用户现有配置优先，其次项目变量，最后 npm 官方源 ──────────────
 # 只对本脚本子进程设置 npm_config_registry，不修改 ~/.npmrc。
+npmrc_declares_registry() {
+  local file="${1:-}"
+  [ -n "$file" ] && [ -f "$file" ] || return 1
+  awk '
+    /^[[:space:]]*[#;]/ { next }
+    /^[[:space:]]*registry[[:space:]]*=/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$file"
+}
+
+has_explicit_npm_registry() {
+  local project_root="" user_config="" global_config=""
+  project_root="$(npm prefix 2>/dev/null || true)"
+  user_config="$(npm config get userconfig 2>/dev/null || true)"
+  global_config="$(npm config get globalconfig 2>/dev/null || true)"
+
+  npmrc_declares_registry "${project_root:+$project_root/.npmrc}" \
+    || npmrc_declares_registry "$user_config" \
+    || npmrc_declares_registry "$global_config"
+}
+
 resolve_registry() {
   local current=""
-  if [ -n "${IOS_MCP_NPM_REGISTRY:-}" ]; then
-    TRUSTED_REGISTRY="$IOS_MCP_NPM_REGISTRY"
-    REGISTRY_SOURCE="IOS_MCP_NPM_REGISTRY"
-  elif [ -n "${npm_config_registry:-}" ]; then
+  if [ -n "${npm_config_registry:-}" ]; then
     TRUSTED_REGISTRY="$npm_config_registry"
-    REGISTRY_SOURCE="npm_config_registry"
+    REGISTRY_SOURCE="用户环境 npm_config_registry"
   elif [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
     TRUSTED_REGISTRY="$NPM_CONFIG_REGISTRY"
-    REGISTRY_SOURCE="NPM_CONFIG_REGISTRY"
-  else
+    REGISTRY_SOURCE="用户环境 NPM_CONFIG_REGISTRY"
+  elif has_explicit_npm_registry; then
     current="$(npm config get registry 2>/dev/null || true)"
     if [ -n "$current" ] && [ "$current" != "unknown" ]; then
       TRUSTED_REGISTRY="$current"
-      REGISTRY_SOURCE="本机 npm 当前有效配置"
-    else
-      TRUSTED_REGISTRY="$PUBLIC_REGISTRY"
-      REGISTRY_SOURCE="npm 官方默认源"
+      REGISTRY_SOURCE="用户现有 npm 配置"
     fi
+  fi
+
+  if [ -z "$TRUSTED_REGISTRY" ] && [ -n "${IOS_MCP_NPM_REGISTRY:-}" ]; then
+    TRUSTED_REGISTRY="$IOS_MCP_NPM_REGISTRY"
+    REGISTRY_SOURCE="IOS_MCP_NPM_REGISTRY"
+  elif [ -z "$TRUSTED_REGISTRY" ]; then
+    TRUSTED_REGISTRY="$PUBLIC_REGISTRY"
+    REGISTRY_SOURCE="npm 官方默认源"
   fi
 }
 

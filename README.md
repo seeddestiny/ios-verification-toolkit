@@ -33,7 +33,7 @@ bash scripts/run_all.sh
 安装源支持环境变量和机器本地配置；仓库仅提供 npm 官方公网默认值，不保存认证信息、内部 PyPI 地址或机器私有值：
 
 ```bash
-# 可选覆盖；不设置时 npm 优先读取本机配置，最后使用官方源；PyPI 读取本机配置：
+# npm 未显式配置 registry 时的项目级候选；PyPI 读取本机配置：
 export IOS_MCP_NPM_REGISTRY="<TRUSTED_NPM_REGISTRY>"
 export IOS_MCP_PYPI="<TRUSTED_PYPI_INDEX>"
 # 仅当本机存在多个 Apple Development 团队时需要：
@@ -43,7 +43,7 @@ export IOS_MCP_TARGET_BUNDLE="<TARGET_APP_BUNDLE_ID>"
 export IOS_MCP_TARGET_LABELS="<LABEL_1>,<LABEL_2>"
 ```
 
-npm 源按以下顺序选择：`IOS_MCP_NPM_REGISTRY` → `npm_config_registry` / `NPM_CONFIG_REGISTRY` → 本机 `npm config get registry` 的当前有效配置 → npm 官方源 `https://registry.npmjs.org/`。因此用户机器已经配置自己的源时会优先使用，仓库不保存任何公司内部 npm 域名。registry URL 不得内嵌凭据，非 HTTPS 源需显式设置 `ALLOW_INSECURE_NPM=1`。使用自定义源安装 XCUITest 驱动失败时不会静默混用第二个源；只有显式设置 `ALLOW_PUBLIC_NPM=1` 才允许该命令临时回退到官方公网源。
+npm 源首先使用用户现有配置：`npm_config_registry` / `NPM_CONFIG_REGISTRY` 环境变量优先，其次按 npm 自身规则读取显式配置了 `registry` 的项目、用户或全局 `.npmrc`；用户未显式配置时才使用 `IOS_MCP_NPM_REGISTRY`，最后回退 npm 官方源 `https://registry.npmjs.org/`。其中 `npm_config_registry` 是 npm 标准环境变量，只影响当前进程及子进程；`IOS_MCP_NPM_REGISTRY` 才是本项目定义的变量。仓库不保存任何公司内部 npm 域名。registry URL 不得内嵌凭据，非 HTTPS 源需显式设置 `ALLOW_INSECURE_NPM=1`。使用自定义源安装 XCUITest 驱动失败时不会静默混用第二个源；只有显式设置 `ALLOW_PUBLIC_NPM=1` 才允许该命令临时回退到官方公网源。
 
 PyPI 只安装 Python MCP 适配层的 `mcp` 与 `requests`，不承载 WDA。它按 `IOS_MCP_PYPI` → `PIP_INDEX_URL` → 本机 pip 配置的顺序选择，不在仓库内置内部 PyPI 地址，也不会静默回退公网；没有本机可信源时必须显式设置 `ALLOW_PUBLIC_PYPI=1`。源 URL 不得内嵌凭据，非 HTTPS 源还需显式设置 `ALLOW_INSECURE_PYPI=1`；为避免依赖混淆，检测到 `extra-index-url` 会直接停止。安装使用不继承系统包的 venv，只接受 wheel，且不会升级 pip。若要彻底只使用 npm，需要把 Python MCP Server/Bridge 改写为 Node/TypeScript，不能直接从 npm 安装 Python 包替代。
 
