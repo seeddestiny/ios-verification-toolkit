@@ -46,6 +46,7 @@ STATE_DIR="$RUNTIME_ROOT/state"
 DEVICE_UDID="$(python3 "$PROJECT_DIR/mcp_server/device_discovery.py" resolve --field udid)" || exit 2
 export IOS_MCP_UDID="$DEVICE_UDID"
 TEAM_ID="${IOS_MCP_TEAM_ID:-}"
+TEAM_CANDIDATES=()
 WDA_BUNDLE_ID="$(python3 "$PROJECT_DIR/mcp_server/wda_bundle_id.py")" || exit 2
 TUNNEL_REGISTRY_PORT="42314"
 WDA_PROJ="$HOME/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj"
@@ -58,11 +59,20 @@ c_warn(){ printf "\033[33m[WARN]\033[0m  %s\n" "$*"; }
 c_err(){  printf "\033[31m[FAIL]\033[0m  %s\n" "$*" >&2; }
 c_step(){ printf "\n\033[1;35m########## %s ##########\033[0m\n" "$*"; }
 
-resolve_team_id(){
-  if [ -z "$TEAM_ID" ]; then
-    TEAM_ID="$(python3 "$PROJECT_DIR/mcp_server/signing_identity.py" team-id)" || return 2
+load_team_candidates(){
+  local candidate=""
+  TEAM_CANDIDATES=()
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] && TEAM_CANDIDATES+=("$candidate")
+  done < <(python3 "$PROJECT_DIR/mcp_server/signing_identity.py" team-candidates)
+  if [ "${#TEAM_CANDIDATES[@]}" -eq 0 ]; then
+    c_err "未找到可用 Apple Development 签名身份；请先在 Xcode 登录账号并创建开发证书。"
+    return 2
   fi
-  export IOS_MCP_TEAM_ID="$TEAM_ID"
+}
+
+remember_team_id(){
+  python3 "$PROJECT_DIR/mcp_server/signing_identity.py" remember-team "$TEAM_ID" >/dev/null
 }
 
 # 是否可交互(有 tty 且未强制非交互)。后台任务/管道下为 false。
@@ -134,7 +144,6 @@ run_stage1(){
 
 # ── 阶段 2:WDA 签名构建 ─────────────────────────────────────────────────────
 _build_wda_once(){
-  resolve_team_id || return 2
   ios_mcp_sanitized_env env -u CC -u CXX "$DEVELOPER_DIR/usr/bin/xcodebuild" build-for-testing \
     -project "$WDA_PROJ" -scheme WebDriverAgentRunner \
     -destination "id=$DEVICE_UDID" -allowProvisioningUpdates \
@@ -145,44 +154,77 @@ _build_wda_once(){
     > "$LOG_DIR/wda_build_runall.log" 2>&1
 }
 
+is_team_signing_failure(){
+  local log="$1"
+  grep -qiE "Unable to log in with account|authentication|were rejected|No profiles for|requires a development team|does not have a valid signing|requires a provisioning profile|provisioning profile.*(doesn't|does not|missing|failed)|No Accounts|certificate.*(not found|missing|invalid|expired)|device.*not registered|register.*device|Developer Portal" "$log" 2>/dev/null
+}
+
 run_stage2(){
   c_step "阶段 2 / WDA 签名构建到真机"
-  if stage2_done; then c_ok "WDA .app 产物已存在,跳过构建。"; return 0; fi
+  if stage2_done; then
+    TEAM_ID="$(python3 "$PROJECT_DIR/mcp_server/signing_identity.py" team-id 2>/dev/null || true)"
+    if [ -n "$TEAM_ID" ]; then
+      export IOS_MCP_TEAM_ID="$TEAM_ID"
+      remember_team_id || true
+    fi
+    c_ok "WDA .app 产物已存在,跳过构建。"
+    return 0
+  fi
   local log="$LOG_DIR/wda_build_runall.log"
 
   while true; do
-    # 先自动尝试;失败则清缓存再重试一次(应对 build system 偶发崩溃)
-    local attempt
-    for attempt in 1 2; do
-      c_info "构建签名 WDA(第 $attempt 次,带 -allowProvisioningUpdates)..."
-      _build_wda_once
-      if stage2_done; then c_ok "WDA 构建签名成功(第 $attempt 次)。"; return 0; fi
-      c_warn "第 $attempt 次构建未成功。"
-      [ "$attempt" = "1" ] && { c_info "清理 WDA 构建缓存后重试..."; rm -rf "$HOME/Library/Developer/Xcode/DerivedData/WebDriverAgent-"* 2>/dev/null; sleep 2; }
+    load_team_candidates || exit 2
+    local total="${#TEAM_CANDIDATES[@]}" index=0 attempt=0 signing_failures=0
+    c_info "自动发现 $total 个签名团队候选；按本机成功记录和现有 WDA 优先尝试(不回显 Team ID)。"
+
+    for TEAM_ID in "${TEAM_CANDIDATES[@]}"; do
+      index=$((index + 1))
+      export IOS_MCP_TEAM_ID="$TEAM_ID"
+      c_info "尝试签名团队候选 $index/$total..."
+
+      for attempt in 1 2; do
+        if _build_wda_once && stage2_done; then
+          remember_team_id || { c_err "WDA 已构建，但无法保存本机成功团队状态。"; exit 1; }
+          c_ok "WDA 构建签名成功；已记住本机成功团队，后续自动复用。"
+          return 0
+        fi
+
+        if is_team_signing_failure "$log"; then
+          signing_failures=$((signing_failures + 1))
+          c_warn "候选 $index/$total 无法完成签名，自动尝试下一个候选。"
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData/WebDriverAgent-"* 2>/dev/null
+          break
+        fi
+
+        if [ "$attempt" = "1" ]; then
+          c_warn "构建出现非签名类失败；清理 WDA 缓存后自动重试一次。"
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData/WebDriverAgent-"* 2>/dev/null
+          sleep 2
+          continue
+        fi
+
+        c_err "WDA 构建失败(非签名类错误),日志末尾:"
+        tail -20 "$log"
+        if is_interactive; then
+          need_manual "请查看上面的错误(完整日志: $log)。修复后输入 Done 重试,或 q 退出。"
+          continue 3
+        fi
+        exit 1
+      done
     done
 
-    # 两次自动重试都失败:判断是否为"需人工签名"的原因
-    if grep -qiE "Unable to log in with account|were rejected|No profiles for|Signing for .* requires a development team|does not have a valid signing" "$log" 2>/dev/null; then
-      need_manual "$(cat <<EOF
-[WDA 自动构建重试 2 次仍失败,判断为签名/账号问题,需人工在 Xcode 处理一次]
-  1) Xcode → Settings(Cmd+,)→ Accounts,选中你的账号,如提示重新登录则登录(密码+双因素)
-  2) 终端执行: open "$WDA_PROJ"
-  3) TARGETS → WebDriverAgentRunner → Signing & Capabilities:
-     勾选 "Automatically manage signing",Team 选 $TEAM_ID,等其自动生成 profile
-  4) 关闭 Xcode 即可(profile 已落地)
+    if [ "$signing_failures" -ge "$total" ]; then
+      need_manual "$(cat <<'EOF'
+[脚本已自动尝试所有本机有效开发团队，但都无法完成 WDA 签名]
+  请打开 Xcode → Settings(Cmd+,)→ Accounts，确认至少一个开发账号处于登录状态；
+  如有红色提示，完成密码和双因素重新登录。无需手工查询或输入 Team ID。
 EOF
 )"
-      # 交互模式:用户完成并输 Done 后,回到 while 顶部再自动构建一次
-      c_info "将再次尝试自动构建..."
+      c_info "将重新发现候选并自动重试..."
       continue
     fi
 
-    # 其它非签名类错误:报出日志,交给用户排查(不无限重试)
-    c_err "WDA 构建失败(非签名类错误),日志末尾:"; tail -20 "$log"
-    if is_interactive; then
-      need_manual "请查看上面的错误(完整日志: $log)。修复后输入 Done 重试,或 q 退出。"
-      continue
-    fi
+    c_err "没有团队候选完成 WDA 构建。完整日志: $log"
     exit 1
   done
 }

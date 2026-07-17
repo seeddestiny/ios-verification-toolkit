@@ -1,8 +1,15 @@
+import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
 
 from mcp_server.signing_identity import (
     SigningIdentity,
+    candidate_team_ids,
+    load_cached_team_id,
     parse_signing_identities,
+    remember_team_id,
     resolve_certificate_common_name,
     resolve_team_id,
 )
@@ -45,13 +52,36 @@ class SigningIdentityTests(unittest.TestCase):
             "FGHIJ67890",
         )
 
-    def test_multiple_teams_require_explicit_selection(self):
+    def test_multiple_teams_are_returned_in_stable_order(self):
+        identities = [
+            SigningIdentity("Apple Development: B (FGHIJ67890)", "FGHIJ67890"),
+            SigningIdentity("Apple Development: A (ABCDE12345)", "ABCDE12345"),
+        ]
+        self.assertEqual(
+            candidate_team_ids({}, identities=identities),
+            ["FGHIJ67890", "ABCDE12345"],
+        )
+
+    def test_cached_team_precedes_other_candidates(self):
         identities = [
             SigningIdentity("Apple Development: A (ABCDE12345)", "ABCDE12345"),
             SigningIdentity("Apple Development: B (FGHIJ67890)", "FGHIJ67890"),
         ]
-        with self.assertRaisesRegex(ValueError, "IOS_MCP_TEAM_ID"):
-            resolve_team_id({}, identities=identities)
+        self.assertEqual(
+            candidate_team_ids(
+                {}, identities=identities, cached_team_id="FGHIJ67890"
+            ),
+            ["FGHIJ67890", "ABCDE12345"],
+        )
+
+    def test_successful_team_is_cached_with_private_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = {"IOS_MCP_RUNTIME_DIR": directory}
+            remember_team_id("ABCDE12345", source)
+            self.assertEqual(load_cached_team_id(source), "ABCDE12345")
+            state_file = Path(directory) / "state" / "signing-team.json"
+            self.assertEqual(os.stat(state_file).st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(state_file.read_text()), {"team_id": "ABCDE12345"})
 
     def test_certificate_name_matches_selected_team(self):
         identities = [

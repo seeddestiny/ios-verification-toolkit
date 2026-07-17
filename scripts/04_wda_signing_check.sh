@@ -28,7 +28,7 @@ unset CC CXX
 DEVELOPER_DIR="$(python3 "$PROJECT_DIR/mcp_server/xcode_resolver.py" --tool xcodebuild)" || exit 2
 export DEVELOPER_DIR
 
-# ── 配置(复用既有 WDA 签名团队；仍有歧义时需 IOS_MCP_TEAM_ID)──────────────
+# ── 配置(自动选择上次成功、既有 WDA 或本机首个有效签名团队)────────────────
 TEAM_ID="$(python3 "$PROJECT_DIR/mcp_server/signing_identity.py" team-id)" || exit 2
 CERT_CN="$(IOS_MCP_TEAM_ID="$TEAM_ID" python3 "$PROJECT_DIR/mcp_server/signing_identity.py" certificate-name)" || exit 2
 WDA_BUNDLE_ID="$(python3 "$PROJECT_DIR/mcp_server/wda_bundle_id.py")" || exit 2
@@ -159,6 +159,8 @@ build_wda() {
     2>&1 | grep -iE "error:|succeeded|signing|profile|install|TEST BUILD" | tail -25
   local rc=${PIPESTATUS[0]}
   if [ "$rc" = "0" ]; then
+    python3 "$PROJECT_DIR/mcp_server/signing_identity.py" remember-team "$TEAM_ID" >/dev/null \
+      || { c_err "WDA 已构建，但无法保存本机成功团队状态。"; return 1; }
     c_ok "WDA 构建签名成功。后续 Appium 可用 appium:usePrebuiltWDA=true 复用。"
   else
     c_err "WDA 构建失败(rc=$rc)。若报账号登录被拒,请先完成【人工修复步骤】。"

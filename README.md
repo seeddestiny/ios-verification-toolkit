@@ -73,11 +73,9 @@ bash scripts/run_all.sh
 
 所有 registry/index URL 都不得内嵌凭据；非 HTTPS 源需分别显式设置 `ALLOW_INSECURE_NPM=1` 或 `ALLOW_INSECURE_PYPI=1`。PyPI 检测到 `extra-index-url` 会停止，避免依赖混淆。自定义 npm 源安装 XCUITest 驱动失败时不会静默混用官方源；只有显式设置 `ALLOW_PUBLIC_NPM=1` 才允许该驱动安装命令临时回退。
 
-只有设备或目标 App 存在歧义时，才需要设置下面这些运行参数；它们都不是安装源配置：
+只有目标 App 存在歧义时，才需要设置下面这些运行参数；它们都不是安装源配置：
 
 ```bash
-# 仅当本机存在多个 Apple Development 团队时需要：
-export IOS_MCP_TEAM_ID="<APPLE_TEAM_ID>"
 # 端到端脚本需要操作具体 App 时可选：
 export IOS_MCP_TARGET_BUNDLE="<TARGET_APP_BUNDLE_ID>"
 export IOS_MCP_TARGET_LABELS="<LABEL_1>,<LABEL_2>"
@@ -86,7 +84,7 @@ export IOS_MCP_TARGET_LABELS="<LABEL_1>,<LABEL_2>"
 PyPI 只安装 Python MCP 适配层的 `mcp` 与 `requests`，不承载 WDA。安装使用不继承系统包的 venv，只接受 wheel，且不会升级 pip。若要彻底只使用 npm，需要把 Python MCP Server/Bridge 改写为 Node/TypeScript，不能直接从 npm 安装 Python 包替代。
 
 > ⚠️ **设备 UDID 不写入配置**：每次启动时通过 `devicectl` 发现当前连接的物理 iPhone/iPad。单台自动选择；零台报错；多台时 Skill 会用自然语言列出全部候选并等待用户回复序号、设备名称或硬件 UDID，再用 `IOS_MCP_UDID`、`IOS_MCP_DEVICE_NAME`、`--udid` 或 `--device-name` 消歧，绝不静默取第一台。
-> - Apple Team ID 不写入项目：优先复用本机既有 WDA 构建的签名团队；否则单一开发团队自动发现，仍有歧义时才通过 `IOS_MCP_TEAM_ID` 显式选择。
+> - Apple Team ID 不写入项目或 Git：脚本自动发现全部有效开发证书，按上次成功团队、既有 WDA、其余候选的顺序尝试。只有签名类失败才切换团队；首个成功结果以 `0600` 权限保存在被 Git 忽略的 `.runtime/state/signing-team.json`，后续自动复用。普通安装无需查询或输入 Team ID。
 > - `updatedWDABundleId` 默认由当前 Mac 的稳定硬件标识哈希实时组装；原始硬件 UUID 不写入配置或日志。同一台 Mac 保持一致，不同 Mac 自动得到不同 ID。只有兼容已有 WDA 时才显式设置 `IOS_MCP_WDA_BUNDLE_ID` 覆盖。
 > - 日志、截图和运行时状态默认分别写入 `.runtime/logs/`、`.runtime/screenshots/`、`.runtime/state/`；整个 `.runtime/` 已加入 `.gitignore`。需要改位置时可设置 `IOS_MCP_RUNTIME_DIR`：相对路径会放在 `.runtime/` 下，绝对路径应指向仓库外的私有目录。
 > - `mcp_server/.venv/` 只是本机依赖环境，不属于 Git 必需内容；`.venv/` 已整体忽略。手工压缩或复制项目时也应主动排除它，因为其中会记录本机 Python 和项目绝对路径。
@@ -267,7 +265,7 @@ DRY_RUN=1 bash scripts/99_uninstall_cleanup.sh --yes    # 预演不执行
 - **UDID 有两种**：统一发现器会同时返回 Appium 所需的硬件 UDID 和 CoreDevice identifier；MCP、WDA 与隧道只使用前者。不要把 CoreDevice UUID 写入 `IOS_MCP_UDID`。
 - **设备选择**：`python3 mcp_server/device_discovery.py list` 可查看实时候选；默认只在恰好一台设备时自动选择，多台必须显式消歧。
 - **Xcode 选择**:`xcode-select` 指向 `/Library/Developer/CommandLineTools` 时，脚本会忽略该无效候选并自动使用本机唯一一份完整 Xcode；若存在多份完整 Xcode，则只为本次命令设置 `DEVELOPER_DIR=/Applications/<Xcode>.app/Contents/Developer`，无需也不建议修改全局 `xcode-select`。
-- **签名团队**:优先复用既有 WDA 构建的签名团队；没有可复用结果且存在多个 Apple Development 团队时，必须设置 `IOS_MCP_TEAM_ID`。动态 WDA bundle ID 首次使用仍需对应 provisioning profile。
+- **签名团队**:自动发现有效 Apple Development 团队并逐个验证，优先复用上次成功团队和既有 WDA；签名类失败才切换候选，非签名错误不会被换团队掩盖。成功团队只保存在权限为 `0600` 的 Git 忽略运行时状态中。动态 WDA bundle ID 首次成功时由 Xcode 自动管理对应 provisioning profile。
 - **iOS 17+ 真机**:必须 `sudo ... tunnel-creation -- --udid <硬件UDID>` 建 RemoteXPC 隧道且 registry 中出现目标设备；只看到进程存在不代表就绪,否则仍可能报 `Unknown device UDID`。显式指定 `--udid` 还能跳过无关 Apple TV 发现。
 - **UI 自动化开关**:iPhone 设置 → 开发者 → `Enable UI Automation` 必须打开,否则 WDA 启动后报 `Timed out while enabling automation mode`。
 - **卸载重装 WDA 后需重新信任**:设备侧 WDA 被卸载后重装,是新证书,必须再次在"VPN与设备管理"里信任。

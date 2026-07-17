@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import plistlib
 import os
 import re
@@ -13,11 +14,14 @@ from dataclasses import dataclass
 
 try:
     from .env_sanitizer import sanitized_env
+    from .runtime_paths import ensure_runtime_paths, runtime_paths
 except ImportError:
     from env_sanitizer import sanitized_env
+    from runtime_paths import ensure_runtime_paths, runtime_paths
 
 
 _TEAM_ID_PATTERN = re.compile(r"^[A-Z0-9]{10}$")
+_TEAM_STATE_FILE = "signing-team.json"
 _IDENTITY_PATTERN = re.compile(
     r'^\s*\d+\)\s+[0-9A-Fa-f]+\s+"'
     r'(?P<name>(?:Apple Development|iPhone Developer): .+? '
@@ -104,36 +108,91 @@ def _validate_team_id(value: str) -> str:
     return value
 
 
-def resolve_team_id(
+def load_cached_team_id(source: Mapping[str, str] | None = None) -> str:
+    """Load the last successful team from private, Git-ignored runtime state."""
+    path = runtime_paths(source).state / _TEAM_STATE_FILE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return ""
+    value = str(payload.get("team_id") or "").strip()
+    return value if _TEAM_ID_PATTERN.fullmatch(value) else ""
+
+
+def remember_team_id(
+    value: str,
+    source: Mapping[str, str] | None = None,
+) -> None:
+    """Persist a successful team locally with user-only permissions."""
+    team_id = _validate_team_id(value)
+    state = ensure_runtime_paths(source).state
+    path = state / _TEAM_STATE_FILE
+    temporary = state / f".{_TEAM_STATE_FILE}.{os.getpid()}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump({"team_id": team_id}, stream, separators=(",", ":"))
+            stream.write("\n")
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def candidate_team_ids(
     source: Mapping[str, str] | None = None,
     *,
     identities: Sequence[SigningIdentity] | None = None,
     wda_team_ids: Sequence[str] | None = None,
-) -> str:
-    """Return an explicit team ID or safely infer one unique local team."""
+    cached_team_id: str | None = None,
+) -> list[str]:
+    """Return deterministic candidates without exposing certificate names."""
     environment = os.environ if source is None else source
     explicit = environment.get("IOS_MCP_TEAM_ID", "").strip()
     if explicit:
-        return _validate_team_id(explicit)
+        return [_validate_team_id(explicit)]
 
     available = list(identities) if identities is not None else discover_signing_identities(environment)
-    team_ids = sorted({identity.team_id for identity in available})
+    # 保留 Keychain 的本机发现顺序；不要用 Team ID 字典序制造伪优先级。
+    team_ids = list(dict.fromkeys(identity.team_id for identity in available))
+    if not team_ids:
+        raise ValueError("未找到 Apple Development 签名身份，请先在 Xcode 配置开发证书")
+
+    if cached_team_id is None:
+        cached = "" if identities is not None else load_cached_team_id(environment)
+    else:
+        cached = cached_team_id
     if wda_team_ids is not None:
         existing_wda_teams = list(wda_team_ids)
     elif identities is not None:
         existing_wda_teams = []
     else:
         existing_wda_teams = discover_existing_wda_team_ids(environment)
-    reusable_teams = sorted(set(team_ids).intersection(existing_wda_teams))
-    if len(reusable_teams) == 1:
-        return reusable_teams[0]
-    if not team_ids:
-        raise ValueError("未找到 Apple Development 签名身份，请先在 Xcode 配置开发证书")
-    if len(team_ids) > 1:
-        raise ValueError(
-            f"检测到 {len(team_ids)} 个可用开发团队；为避免选错，请显式设置 IOS_MCP_TEAM_ID"
-        )
-    return team_ids[0]
+
+    ordered: list[str] = []
+    for candidate in (cached, *sorted(set(existing_wda_teams)), *team_ids):
+        if candidate in team_ids and candidate not in ordered:
+            ordered.append(candidate)
+    return ordered
+
+
+def resolve_team_id(
+    source: Mapping[str, str] | None = None,
+    *,
+    identities: Sequence[SigningIdentity] | None = None,
+    wda_team_ids: Sequence[str] | None = None,
+    cached_team_id: str | None = None,
+) -> str:
+    """Return the highest-priority local team; run_all validates it by building."""
+    return candidate_team_ids(
+        source,
+        identities=identities,
+        wda_team_ids=wda_team_ids,
+        cached_team_id=cached_team_id,
+    )[0]
 
 
 def resolve_certificate_common_name(
@@ -165,20 +224,28 @@ def main() -> int:
     parser.add_argument(
         "field",
         nargs="?",
-        choices=("team-id", "certificate-name"),
+        choices=("team-id", "team-candidates", "certificate-name", "remember-team"),
         default="team-id",
     )
+    parser.add_argument("value", nargs="?")
     args = parser.parse_args()
     try:
-        value = (
-            resolve_team_id()
-            if args.field == "team-id"
-            else resolve_certificate_common_name()
-        )
-    except ValueError as exc:
+        if args.field == "team-id":
+            value = resolve_team_id()
+        elif args.field == "team-candidates":
+            value = "\n".join(candidate_team_ids())
+        elif args.field == "certificate-name":
+            value = resolve_certificate_common_name()
+        else:
+            if not args.value:
+                raise ValueError("remember-team 需要 Team ID")
+            remember_team_id(args.value)
+            value = ""
+    except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(value)
+    if value:
+        print(value)
     return 0
 
 
