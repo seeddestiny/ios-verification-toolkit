@@ -160,6 +160,15 @@ is_team_signing_failure(){
   grep -qiE "Unable to log in with account|authentication|were rejected|No profiles for|requires a development team|does not have a valid signing|requires a provisioning profile|provisioning profile.*(doesn't|does not|missing|failed)|No Accounts|certificate.*(not found|missing|invalid|expired)|device.*not registered|register.*device|Developer Portal" "$log" 2>/dev/null
 }
 
+open_wda_project(){
+  if python3 "$PROJECT_DIR/mcp_server/xcode_project.py" "$WDA_PROJ"; then
+    c_ok "已用本轮选中的 Xcode 自动打开 WDA 工程。"
+    return 0
+  fi
+  c_warn "无法自动打开 WDA 工程，请确认 Xcode 与 XCUITest 驱动仍然存在。"
+  return 1
+}
+
 run_stage2(){
   c_step "阶段 2 / WDA 签名构建到真机"
   if stage2_done; then
@@ -215,10 +224,14 @@ run_stage2(){
     done
 
     if [ "$signing_failures" -ge "$total" ]; then
+      open_wda_project || true
       need_manual "$(cat <<'EOF'
 [脚本已自动尝试所有本机有效开发团队，但都无法完成 WDA 签名]
-  请打开 Xcode → Settings(Cmd+,)→ Accounts，确认至少一个开发账号处于登录状态；
+  WDA 工程已使用本轮选中的 Xcode 自动打开。
+  请进入 Xcode → Settings(Cmd+,)→ Accounts，确认至少一个开发账号处于登录状态；
   如有红色提示，完成密码和双因素重新登录。无需手工查询或输入 Team ID。
+  然后在 TARGETS → WebDriverAgentRunner → Signing & Capabilities 中确认
+  Automatically manage signing 已开启；完成后回到终端输入 Done。
 EOF
 )"
       c_info "将重新发现候选并自动重试..."

@@ -113,6 +113,10 @@ check_device_and_proj() {
 
 # ── 人工修复指引 ─────────────────────────────────────────────────────────────
 print_manual_fix() {
+  if [ -d "$WDA_PROJ" ]; then
+    python3 "$PROJECT_DIR/mcp_server/xcode_project.py" "$WDA_PROJ" \
+      || c_warn "无法自动打开 WDA 工程。"
+  fi
   printf "\n\033[1;33m========== 人工修复步骤(一次性,脚本无法代劳)==========\033[0m\n"
   cat <<EOF
 根因:WDA 的动态 bundle ID 没有 provisioning profile，自动生成需账号在线登录。
@@ -122,8 +126,7 @@ print_manual_fix() {
   2) 选中用于本机开发签名的账号
        - 若显示需要重新登录/红色提示 → 点击重新登录,输入密码 + 双因素验证码
        - 确保下方能看到对应开发团队
-  3) 用 Xcode 打开 WDA 工程:
-       open "${WDA_PROJ}"
+  3) WDA 工程已自动使用本轮选中的 Xcode 打开
   4) 选中 TARGETS → WebDriverAgentRunner → Signing & Capabilities:
        - 勾选 "Automatically manage signing"
        - Team 选择与本机 Apple Development 证书匹配的团队

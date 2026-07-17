@@ -30,6 +30,8 @@ DEVICE_UDID="${IOS_MCP_UDID:-${DEVICE_UDID:-}}" # 留空则按统一规则发现
 WDA_BUNDLE_PREFIX="WebDriverAgentRunner"  # 匹配设备上的 WDA
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_ROOT="$(python3 "$PROJECT_DIR/mcp_server/runtime_paths.py" root)" || exit 2
+DEVELOPER_DIR="$(python3 "$PROJECT_DIR/mcp_server/xcode_resolver.py" --tool devicectl 2>/dev/null || true)"
+DEVICECTL="${DEVELOPER_DIR:+$DEVELOPER_DIR/usr/bin/devicectl}"
 DRY_RUN=0
 ASSUME_YES=0
 PURGE_BREW=0
@@ -125,6 +127,10 @@ clean_npmrc() {
 # ── 5. 卸载设备上的 WDA App ───────────────────────────────────────────────────
 remove_wda_on_device() {
   c_step "5. 卸载真机上的 WDA(WebDriverAgentRunner)"
+  if [ -z "$DEVICECTL" ] || [ ! -x "$DEVICECTL" ]; then
+    c_warn "未找到所选 Xcode 的 devicectl，跳过设备 WDA 卸载。"
+    return 0
+  fi
   # 复用 MCP 的设备选择规则：单台自动，多台必须显式 IOS_MCP_UDID。
   local selected
   if [ -n "$DEVICE_UDID" ]; then
@@ -140,7 +146,7 @@ remove_wda_on_device() {
   c_info "目标设备: $DEVICE_UDID"
   # 列出设备上匹配 WebDriverAgentRunner 的 bundleId
   local apps
-  apps="$(xcrun devicectl device info apps --device "$DEVICE_UDID" 2>/dev/null \
+  apps="$("$DEVICECTL" device info apps --device "$DEVICE_UDID" 2>/dev/null \
     | grep -i "$WDA_BUNDLE_PREFIX" | awk '{print $1}')"
   if [ -z "$apps" ]; then
     c_ok "设备上未发现 WDA App($WDA_BUNDLE_PREFIX),无需卸载。"
@@ -149,7 +155,7 @@ remove_wda_on_device() {
   while IFS= read -r bid; do
     [ -z "$bid" ] && continue
     if confirm "从设备卸载 WDA: $bid ?"; then
-      run "xcrun devicectl device uninstall app --device \"$DEVICE_UDID\" \"$bid\""
+      run "\"$DEVICECTL\" device uninstall app --device \"$DEVICE_UDID\" \"$bid\""
       c_ok "已卸载 $bid"
     fi
   done <<< "$apps"
