@@ -179,6 +179,10 @@ main() {
   check_profile
   check_account_login
   check_device_and_proj
+  if [ -d "$WDA_PROJ" ]; then
+    python3 "$PROJECT_DIR/mcp_server/wda_project_config.py" "$WDA_PROJ" \
+      || hard_fail "无法同步 WDA 工程的动态 Bundle ID。"
+  fi
 
   c_step "预检结论"
   # 注意:缺 provisioning profile 不是 build 的硬阻断 —— -allowProvisioningUpdates

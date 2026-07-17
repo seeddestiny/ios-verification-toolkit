@@ -201,6 +201,12 @@ install_xcuitest_driver() {
   [ "$DRY_RUN" = "1" ] || exit 1
 }
 
+configure_wda_bundle_id() {
+  c_step "3b. 写入当前 Mac 的 WDA Bundle ID"
+  python3 "$PROJECT_DIR/mcp_server/wda_project_config.py" \
+    || { c_err "WDA 工程动态 Bundle ID 配置失败。"; exit 1; }
+}
+
 # ── 4. 安装 libimobiledevice(真机系统日志 idevicesyslog / 端口转发 iproxy)────
 install_libimobiledevice() {
   c_step "4. 安装 libimobiledevice(真机日志 & USB 端口转发)"
@@ -280,6 +286,7 @@ main() {
   setup_registry
   install_appium
   install_xcuitest_driver
+  [ "$DRY_RUN" = "1" ] || configure_wda_bundle_id
   install_libimobiledevice
   install_wda
   summary

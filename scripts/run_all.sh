@@ -161,6 +161,10 @@ is_team_signing_failure(){
 }
 
 open_wda_project(){
+  if ! python3 "$PROJECT_DIR/mcp_server/wda_project_config.py" "$WDA_PROJ"; then
+    c_warn "无法把动态 Bundle ID 写入 WDA 工程，停止打开以避免签名错误的 ID。"
+    return 1
+  fi
   if python3 "$PROJECT_DIR/mcp_server/xcode_project.py" "$WDA_PROJ"; then
     c_ok "已用本轮选中的 Xcode 自动打开 WDA 工程。"
     return 0
@@ -171,6 +175,8 @@ open_wda_project(){
 
 run_stage2(){
   c_step "阶段 2 / WDA 签名构建到真机"
+  python3 "$PROJECT_DIR/mcp_server/wda_project_config.py" "$WDA_PROJ" \
+    || { c_err "无法同步 WDA 工程的动态 Bundle ID。"; exit 2; }
   if stage2_done; then
     TEAM_ID="$(python3 "$PROJECT_DIR/mcp_server/signing_identity.py" team-id 2>/dev/null || true)"
     if [ -n "$TEAM_ID" ]; then
