@@ -15,8 +15,10 @@ from collections.abc import Mapping
 
 try:
     from .env_sanitizer import sanitized_env
+    from .local_config import load_local_config
 except ImportError:
     from env_sanitizer import sanitized_env
+    from local_config import load_local_config
 
 
 DEFAULT_WDA_BUNDLE_PREFIX = "com.iosdevice.mcp.WebDriverAgentRunner"
@@ -71,6 +73,12 @@ def build_wda_bundle_id(
     explicit_bundle_id = environment.get("IOS_MCP_WDA_BUNDLE_ID", "").strip()
     if explicit_bundle_id:
         return _validate_bundle_id(explicit_bundle_id, "IOS_MCP_WDA_BUNDLE_ID")
+
+    configured_bundle_id = ""
+    if source is None:
+        configured_bundle_id = str(load_local_config().get("wda_bundle_id") or "").strip()
+    if configured_bundle_id:
+        return _validate_bundle_id(configured_bundle_id, "本机 WDA bundle ID 配置")
 
     prefix = environment.get("IOS_MCP_WDA_BUNDLE_PREFIX", DEFAULT_WDA_BUNDLE_PREFIX).strip()
     _validate_bundle_id(prefix, "IOS_MCP_WDA_BUNDLE_PREFIX")

@@ -2,8 +2,8 @@
 #
 # 05_install_mcp.sh — 安装 MCP Server 的 Python 依赖(mcp SDK + requests)
 # ─────────────────────────────────────────────────────────────────────────────
-# 供应链安全:优先使用 PIP_INDEX_URL 或本机 pip 配置，其次使用项目级候选，
-#            都未配置时使用官方 PyPI；始终只使用单一源且不修改用户配置。
+# 供应链安全:使用 pip 的本机有效环境或配置，未配置时使用官方 PyPI；
+#            始终只使用单一源且不修改用户配置。
 #
 # 用法:
 #   bash 05_install_mcp.sh            # 安装依赖(推荐建虚拟环境)
@@ -66,10 +66,7 @@ resolve_pypi(){
     fi
   fi
 
-  if [ -z "$TRUSTED_PYPI" ] && [ -n "${IOS_MCP_PYPI:-}" ]; then
-    TRUSTED_PYPI="$IOS_MCP_PYPI"
-    PYPI_SOURCE="IOS_MCP_PYPI"
-  elif [ -z "$TRUSTED_PYPI" ]; then
+  if [ -z "$TRUSTED_PYPI" ]; then
     TRUSTED_PYPI="$PUBLIC_PYPI"
     PYPI_SOURCE="PyPI 官方默认源"
   fi
@@ -83,7 +80,7 @@ detect_pypi(){
   extra_index="${PIP_EXTRA_INDEX_URL:-$(configured_pypi_extra_index)}"
   if [ -n "$extra_index" ]; then
     c_err "检测到 extra-index-url；为避免依赖混淆，本工具只允许一个 PyPI 源。"
-    c_err "请在本轮环境中清除 PIP_EXTRA_INDEX_URL 和对应 pip extra-index-url 配置。"
+    c_err "请移除本机 pip 的额外索引配置后重试。"
     exit 1
   fi
 
@@ -97,8 +94,10 @@ print("\t".join((p.scheme, p.hostname or "", "1" if p.username or p.password els
     || { c_err "解析到的 PyPI 配置不是合法 HTTP(S) URL"; exit 1; }
   [ "$has_credentials" = "0" ] \
     || { c_err "PyPI URL 不得内嵌账号或令牌；请使用本机 pip 认证/keyring。"; exit 1; }
-  if [ "$scheme" != "https" ] && [ "${ALLOW_INSECURE_PYPI:-0}" != "1" ]; then
-    c_err "PyPI 源不是 HTTPS；确认受信网络后才可显式设置 ALLOW_INSECURE_PYPI=1。"
+  local allow_insecure
+  allow_insecure="$(python3 "$MCP_DIR/local_config.py" get allow_insecure_pypi)" || exit 2
+  if [ "$scheme" != "https" ] && [ "$allow_insecure" != "1" ]; then
+    c_err "PyPI 源不是 HTTPS；如确认该源可信，请通过本机配置工具调整安全策略。"
     exit 1
   fi
 

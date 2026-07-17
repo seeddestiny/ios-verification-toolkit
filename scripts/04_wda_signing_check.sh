@@ -51,18 +51,16 @@ hard_fail(){ CHECK_PASS=0; HARD_FAIL=1; c_err "$1"; }
 # ── 1. 证书有效性 ─────────────────────────────────────────────────────────────
 check_cert() {
   c_step "1. 开发证书有效性"
-  local dates notAfter
-  dates="$(security find-certificate -c "$CERT_CN" -p 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null)"
-  if [ -z "$dates" ]; then
+  local certificate
+  certificate="$(security find-certificate -c "$CERT_CN" -p 2>/dev/null)"
+  if [ -z "$certificate" ]; then
     hard_fail "未找到所选开发团队对应的有效证书。需先在 Xcode 登录账号并生成开发证书。"
     return
   fi
-  notAfter="${dates#notAfter=}"
-  # 判断是否已过期
-  if openssl x509 -checkend 0 -noout -in <(security find-certificate -c "$CERT_CN" -p 2>/dev/null) 2>/dev/null; then
-    c_ok "证书有效,到期: $notAfter"
+  if printf '%s' "$certificate" | openssl x509 -checkend 0 -noout 2>/dev/null; then
+    c_ok "所选开发证书在有效期内。"
   else
-    hard_fail "证书已过期($notAfter)。需在 Xcode 重新生成开发证书。"
+    hard_fail "所选开发证书已过期。需在 Xcode 重新生成开发证书。"
   fi
 }
 
@@ -70,17 +68,15 @@ check_cert() {
 check_profile() {
   c_step "2. WDA provisioning profile"
   local dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-  local hit=0 expired=0
+  local hit=0
   for p in "$dir"/*.mobileprovision; do
     [ -f "$p" ] || continue
-    local xml appid team exp
+    local xml
     xml="$(security cms -D -i "$p" 2>/dev/null)"
     # 匹配 team 且 app-id 能覆盖 WDA(通配 * 或精确匹配 xctrunner)
     if printf "%s" "$xml" | grep -q "$TEAM_ID" \
        && printf "%s" "$xml" | grep -qiE "${WDA_BUNDLE_ID}|${TEAM_ID}\.\*"; then
       hit=$((hit+1))
-      exp="$(printf "%s" "$xml" | sed -n 's/.*<key>ExpirationDate<\/key>[[:space:]]*<date>\([^<]*\)<\/date>.*/\1/p' | head -1)"
-      c_info "命中 profile: $(basename "$p")  到期: ${exp:-未知}"
     fi
   done
   if [ "$hit" -gt 0 ]; then

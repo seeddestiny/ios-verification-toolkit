@@ -23,18 +23,15 @@
 默认底座已经安装。Skill 不执行 import/status/doctor、安装更新、全局注册或 `list_tools` 预检；确需 UI 时直接执行第一次真实命令：
 
 ```bash
-IOS_UI_PY=~/Documents/ios-verification-toolkit/mcp_server/.venv/bin/python
-IOS_UI_BRIDGE=~/.agents/skills/ios-change-verification/scripts/ios_ui_session.py
-
-"$IOS_UI_PY" "$IOS_UI_BRIDGE" start --session <runId> --udid <hardware-udid>
-"$IOS_UI_PY" "$IOS_UI_BRIDGE" call --session <runId> tunnel_status '{}'
-"$IOS_UI_PY" "$IOS_UI_BRIDGE" stop --session <runId>
+~/Documents/ios-verification-toolkit/mcp_server/.venv/bin/python ~/.agents/skills/ios-change-verification/scripts/ios_ui_session.py start --session <runId> --udid <hardware-udid>
+~/Documents/ios-verification-toolkit/mcp_server/.venv/bin/python ~/.agents/skills/ios-change-verification/scripts/ios_ui_session.py call --session <runId> tunnel_status '{}'
+~/Documents/ios-verification-toolkit/mcp_server/.venv/bin/python ~/.agents/skills/ios-change-verification/scripts/ios_ui_session.py stop --session <runId>
 ```
 
 - 不在 Codex、TRAE、OpenCode 等客户端中全局注册 `ios_ui_automation`。
 - 每个 `runId` 使用本用户私有 Unix socket；30 分钟无调用自动退出。
 - `start` 只建立按需 MCP 进程，不预先调用 tool。
-- bridge 默认定位 `~/Documents/ios-verification-toolkit/mcp_server/server.py`；需要覆盖时使用 `IOS_UI_MCP_SERVER`。旧 `IOS_DEVICE_MCP_SERVER` 仅作为兼容别名保留。
+- bridge 会从已安装 Skill 的真实路径反向定位同一仓库中的 MCP Server，不需要额外路径覆盖。
 - 第一次 `tunnel_status` 或 `start_tunnel` 记录隧道初始状态；`stop` 只恢复本会话改变的隧道并关闭 MCP，不负责日志清理。
 - 多设备选择在轻量设备发现阶段完成；启动 UI MCP 时传入同一硬件 UDID。
 

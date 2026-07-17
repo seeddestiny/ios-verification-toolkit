@@ -15,8 +15,8 @@
 # 用法:
 #   bash 06_setup_tunnel_sudoers.sh          # 打印将写入的规则并给出确认命令(不自动写)
 #   bash 06_setup_tunnel_sudoers.sh --apply  # 实际写入(本步骤本身需要 sudo 密码一次)
-#   bash 06_setup_tunnel_sudoers.sh --start-tunnel   # 免密后台拉起隧道(需已 --apply)
-#   bash 06_setup_tunnel_sudoers.sh --stop-tunnel    # 免密关闭隧道(需已 --apply)
+#   bash 06_setup_tunnel_sudoers.sh --start-tunnel   # 自动选设备并后台拉起；未免密时提示 sudo
+#   bash 06_setup_tunnel_sudoers.sh --stop-tunnel    # 关闭隧道；未免密时提示 sudo
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 umask 077
@@ -86,10 +86,14 @@ apply(){
 }
 
 start_tunnel(){
-  c_step "免密后台拉起 RemoteXPC 隧道"
+  c_step "后台拉起 RemoteXPC 隧道"
   DEVICE_UDID="$(python3 "$PROJECT_DIR/mcp_server/device_discovery.py" resolve --field udid)" || exit 2
   export IOS_MCP_UDID="$DEVICE_UDID"
   c_info "本轮动态选择目标设备: $DEVICE_UDID"
+  if [ ! -f "$SUDOERS_FILE" ]; then
+    c_info "尚未配置隧道免密；本次需要输入 sudo 密码。"
+    sudo -v || { c_err "sudo 授权失败"; exit 1; }
+  fi
   mkdir -p "$LOG_DIR"
   tunnel_ready(){
     pgrep -f "tunnel-creation" >/dev/null 2>&1 &&
@@ -105,7 +109,7 @@ start_tunnel(){
     sudo -n "$PKILL_BIN" -f tunnel-creation >/dev/null 2>&1 || true
     sleep 1
   fi
-  # 后台常驻;-n 表示不交互(依赖已配置 NOPASSWD)
+  # 后台常驻；若未安装 NOPASSWD，前面的 sudo -v 已在前台完成本轮授权。
   # 显式指定 --udid，跳过无关 Apple TV 发现；否则部分 xcuitest-driver 版本会在
   # USB 隧道已建好后等待 Apple TV，并错误清理刚建好的 registry。
   sudo -n "$APPIUM_BIN" driver run xcuitest tunnel-creation -- \

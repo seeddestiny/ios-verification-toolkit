@@ -2,8 +2,8 @@
 """发现并选择当前连接的物理 iOS/iPadOS 设备。
 
 默认不保存任何设备 UDID。选择优先级：
-1. 调用参数或 IOS_MCP_UDID 显式指定的已连接设备；
-2. 调用参数或 IOS_MCP_DEVICE_NAME 唯一匹配的设备；
+1. 本轮内部传入的硬件 UDID 所对应的已连接设备；
+2. 本轮内部传入的设备名称所唯一匹配的设备；
 3. 当前只有一台候选设备时自动选择；
 4. 零台或多台未消歧时明确失败。
 """
@@ -201,7 +201,7 @@ def select_target_device(
             return matches[0]
         candidates = _candidate_lines(devices) or "(无)"
         raise DeviceSelectionError(
-            f"指定的 IOS_MCP_UDID 当前未连接: {explicit_udid}\n当前候选:\n{candidates}"
+            f"本轮选择的硬件 UDID 当前未连接: {explicit_udid}\n当前候选:\n{candidates}"
         )
 
     if name_selector:
@@ -214,7 +214,7 @@ def select_target_device(
         candidates = _candidate_lines(matches or devices) or "(无)"
         reason = "匹配到多台设备" if len(matches) > 1 else "没有匹配设备"
         raise DeviceSelectionError(
-            f"IOS_MCP_DEVICE_NAME {reason}: {name_selector}\n候选:\n{candidates}"
+            f"本轮选择的设备名称{reason}: {name_selector}\n候选:\n{candidates}"
         )
 
     if len(devices) == 1:
@@ -225,7 +225,7 @@ def select_target_device(
         "检测到多台当前可用的 iPhone/iPad，需要你选择本轮验证设备，"
         "禁止静默选择第一台。\n目前待选设备：\n"
         + _candidate_lines(devices)
-        + "\n请使用 --udid/--device-name，或设置 IOS_MCP_UDID/IOS_MCP_DEVICE_NAME。"
+        + "\n请由调用方完成本轮设备选择后重试。"
     )
 
 

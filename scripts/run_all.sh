@@ -12,7 +12,7 @@
 #   bash scripts/run_all.sh            # 从头跑(交互式,人工步骤原地等 Done)
 #   bash scripts/run_all.sh --from N   # 从第 N 阶段开始
 #   bash scripts/run_all.sh --status   # 只检测各阶段状态,不执行
-#   NONINTERACTIVE=1 bash scripts/run_all.sh   # 强制非交互(人工步骤走退出10模式)
+#   bash scripts/run_all.sh --non-interactive # 强制非交互(人工步骤走退出10模式)
 #
 # 阶段:
 #   1 安装 Appium + xcuitest 驱动 + libimobiledevice      (自动)
@@ -52,6 +52,7 @@ TUNNEL_REGISTRY_PORT="42314"
 WDA_PROJ="$HOME/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent/WebDriverAgent.xcodeproj"
 WDA_APP_GLOB="$HOME/Library/Developer/Xcode/DerivedData/WebDriverAgent-*/Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app"
 VENV_PY="$PROJECT_DIR/mcp_server/.venv/bin/python"
+FORCE_NONINTERACTIVE=0
 
 c_info(){ printf "\033[36m[INFO]\033[0m  %s\n" "$*"; }
 c_ok(){   printf "\033[32m[ OK ]\033[0m  %s\n" "$*"; }
@@ -76,7 +77,7 @@ remember_team_id(){
 }
 
 # 是否可交互(有 tty 且未强制非交互)。后台任务/管道下为 false。
-is_interactive(){ [ -t 0 ] && [ "${NONINTERACTIVE:-0}" != "1" ]; }
+is_interactive(){ [ -t 0 ] && [ "$FORCE_NONINTERACTIVE" != "1" ]; }
 
 # 打印人工操作指引。
 # 交互模式:原地等待用户完成并输入 Done(可 recheck 复验),不退出。
@@ -400,13 +401,31 @@ show_status(){
 
 # ── main ──────────────────────────────────────────────────────────────────────
 FROM=1
-case "${1:-}" in
-  --status) show_status; exit 0 ;;
-  --from)   FROM="${2:-1}" ;;
-esac
+STATUS_ONLY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --status) STATUS_ONLY=1; shift ;;
+    --from)
+      [ "$#" -ge 2 ] || { c_err "--from 缺少阶段编号"; exit 2; }
+      FROM="$2"; shift 2
+      ;;
+    --non-interactive) FORCE_NONINTERACTIVE=1; shift ;;
+    --help|-h)
+      sed -n '11,16s/^# \{0,1\}//p' "$0"
+      exit 0
+      ;;
+    *) c_err "未知参数: $1"; exit 2 ;;
+  esac
+done
+[[ "$FROM" =~ ^[1-7]$ ]] || { c_err "阶段编号必须是 1 到 7"; exit 2; }
+[ "$STATUS_ONLY" = "1" ] && { show_status; exit 0; }
 
 c_step "ios-verification-toolkit 总控编排(从阶段 $FROM 开始)"
-c_info "自动步骤自动执行;遇到必须人工的步骤会打印指引并退出(退出码10),照做后重跑本脚本续跑。"
+if is_interactive; then
+  c_info "自动步骤自动执行；遇到必须人工的步骤会原地等待 Done 后复验并继续。"
+else
+  c_info "当前为非交互模式；遇到人工步骤将以退出码 10 停止，完成后重跑即可续跑。"
+fi
 c_info "本轮动态选择目标设备硬件 UDID: $DEVICE_UDID"
 
 [ "$FROM" -le 1 ] && run_stage1

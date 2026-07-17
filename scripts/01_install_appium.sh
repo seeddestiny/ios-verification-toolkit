@@ -5,7 +5,7 @@
 # 第一步:安装 Appium + XCUITest 驱动 + libimobiledevice(真机日志用)。
 #
 # 设计原则(严格保密 / 供应链安全):
-#   1. 优先使用用户现有 npm 配置；未显式配置时才使用项目变量或 npm 官方源。
+#   1. 使用 npm 解析出的本机有效配置；本机未配置时自然回落 npm 官方源。
 #   2. 全程不使用 sudo 安装 npm 全局包(避免给安装脚本 root 权限)。
 #   3. WDA(WebDriverAgent)采用"运行时临时安装"策略:本脚本只安装 xcuitest
 #      驱动(内含 WDA 源码),不在此构建/签名 WDA。WDA 入口见文件末尾 install_wda()。
@@ -13,7 +13,7 @@
 # 用法:
 #   bash 01_install_appium.sh             # 正常安装
 #   bash 01_install_appium.sh --check     # 只做环境体检,不安装任何东西
-#   DRY_RUN=1 bash 01_install_appium.sh   # 打印将要执行的命令,但不真正执行
+#   bash 01_install_appium.sh --dry-run   # 打印将要执行的命令,但不真正执行
 #
 # 退出码: 0=成功 / 非0=失败
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,7 +27,8 @@ PUBLIC_REGISTRY="https://registry.npmjs.org/"
 TRUSTED_REGISTRY=""
 REGISTRY_SOURCE=""
 APPIUM_DRIVER="xcuitest"
-DRY_RUN="${DRY_RUN:-0}"
+DRY_RUN=0
+CHECK_ONLY=0
 
 # ── 输出辅助 ────────────────────────────────────────────────────────────────
 c_info()  { printf "\033[36m[INFO]\033[0m  %s\n" "$*"; }
@@ -75,57 +76,26 @@ check_prereqs() {
     export DEVELOPER_DIR
     c_ok "Xcode 命令行: $("$DEVELOPER_DIR/usr/bin/xcodebuild" -version 2>/dev/null | head -1)"
   else
-    c_warn "未检测到唯一可用的完整 Xcode；如安装了多份，请仅为本次命令设置 DEVELOPER_DIR。"
+    c_warn "未检测到唯一可用的完整 Xcode；如安装了多份，请运行本机配置工具选择。"
   fi
 
   [ "$ok" = "1" ] || { c_err "前置工具缺失,终止。"; exit 1; }
 }
 
-# ── 1. npm 源:用户现有配置优先，其次项目变量，最后 npm 官方源 ──────────────
-# 只对本脚本子进程设置 npm_config_registry，不修改 ~/.npmrc。
-npmrc_declares_registry() {
-  local file="${1:-}"
-  [ -n "$file" ] && [ -f "$file" ] || return 1
-  awk '
-    /^[[:space:]]*[#;]/ { next }
-    /^[[:space:]]*registry[[:space:]]*=/ { found=1 }
-    END { exit found ? 0 : 1 }
-  ' "$file"
-}
-
-has_explicit_npm_registry() {
-  local project_root="" user_config="" global_config=""
-  project_root="$(npm prefix 2>/dev/null || true)"
-  user_config="$(npm config get userconfig 2>/dev/null || true)"
-  global_config="$(npm config get globalconfig 2>/dev/null || true)"
-
-  npmrc_declares_registry "${project_root:+$project_root/.npmrc}" \
-    || npmrc_declares_registry "$user_config" \
-    || npmrc_declares_registry "$global_config"
-}
-
+# ── 1. npm 源:完全遵循 npm 解析出的本机有效配置 ────────────────────────────
+# 只对本脚本子进程固定解析结果，不修改 ~/.npmrc。
 resolve_registry() {
   local current=""
-  if [ -n "${npm_config_registry:-}" ]; then
-    TRUSTED_REGISTRY="$npm_config_registry"
-    REGISTRY_SOURCE="用户环境 npm_config_registry"
-  elif [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
-    TRUSTED_REGISTRY="$NPM_CONFIG_REGISTRY"
-    REGISTRY_SOURCE="用户环境 NPM_CONFIG_REGISTRY"
-  elif has_explicit_npm_registry; then
-    current="$(npm config get registry 2>/dev/null || true)"
-    if [ -n "$current" ] && [ "$current" != "unknown" ]; then
-      TRUSTED_REGISTRY="$current"
-      REGISTRY_SOURCE="用户现有 npm 配置"
-    fi
-  fi
-
-  if [ -z "$TRUSTED_REGISTRY" ] && [ -n "${IOS_MCP_NPM_REGISTRY:-}" ]; then
-    TRUSTED_REGISTRY="$IOS_MCP_NPM_REGISTRY"
-    REGISTRY_SOURCE="IOS_MCP_NPM_REGISTRY"
-  elif [ -z "$TRUSTED_REGISTRY" ]; then
+  current="$(npm config get registry 2>/dev/null || true)"
+  if [ -n "$current" ] && [ "$current" != "unknown" ]; then
+    TRUSTED_REGISTRY="$current"
+  else
     TRUSTED_REGISTRY="$PUBLIC_REGISTRY"
+  fi
+  if [ "${TRUSTED_REGISTRY%/}" = "${PUBLIC_REGISTRY%/}" ]; then
     REGISTRY_SOURCE="npm 官方默认源"
+  else
+    REGISTRY_SOURCE="本机 npm 有效配置"
   fi
 }
 
@@ -135,7 +105,7 @@ setup_registry() {
 
   resolve_registry
   if [ -z "$TRUSTED_REGISTRY" ] || [ "$TRUSTED_REGISTRY" = "unknown" ]; then
-    c_err "未找到可信 npm 源。请设置 IOS_MCP_NPM_REGISTRY 后重试。"
+    c_err "未找到可信 npm 源。请先修复本机 npm 配置。"
     exit 1
   fi
 
@@ -152,8 +122,10 @@ try {
     || { c_err "解析到的 npm registry 不是合法 HTTP(S) URL"; exit 1; }
   [ "$has_credentials" = "0" ] \
     || { c_err "npm registry URL 不得内嵌账号或令牌；请使用本机 npm 认证配置。"; exit 1; }
-  if [ "$scheme" != "https" ] && [ "${ALLOW_INSECURE_NPM:-0}" != "1" ]; then
-    c_err "npm registry 不是 HTTPS；确认受信网络后才可显式设置 ALLOW_INSECURE_NPM=1。"
+  local allow_insecure
+  allow_insecure="$(python3 "$PROJECT_DIR/mcp_server/local_config.py" get allow_insecure_npm)" || exit 2
+  if [ "$scheme" != "https" ] && [ "$allow_insecure" != "1" ]; then
+    c_err "npm registry 不是 HTTPS；如确认该源可信，请通过本机配置工具调整安全策略。"
     exit 1
   fi
 
@@ -165,7 +137,7 @@ try {
     c_ok "可信 npm 源可达，返回了合法元数据。"
   else
     c_err "可信 npm 源不可达或未返回合法元数据。"
-    c_warn "请检查网络，或通过 IOS_MCP_NPM_REGISTRY 指定另一个可信源。"
+    c_warn "请检查网络或修复本机 npm 配置。"
     exit 1
   fi
   export npm_config_registry="$TRUSTED_REGISTRY"
@@ -188,8 +160,8 @@ install_appium() {
 }
 
 # ── 3. 安装 XCUITest 驱动(内含 WDA 源码)─────────────────────────────────────
-# 可信镜像可能尚未同步部分公开传递依赖。仅当用户允许公网源时，才对驱动安装
-# 这一条命令临时使用公网 registry；不会修改全局 npm 配置。
+# 可信镜像可能尚未同步部分公开传递依赖。仅当本机配置允许公网源时，才对驱动
+# 安装这一条内部调用临时使用公网 registry；不会修改全局 npm 配置。
 install_xcuitest_driver() {
   c_step "3. 安装 XCUITest 驱动"
 
@@ -209,13 +181,19 @@ install_xcuitest_driver() {
     [ "$DRY_RUN" = "1" ] || exit 1
     return
   fi
-  if [ "${ALLOW_PUBLIC_NPM:-0}" != "1" ]; then
-    c_err "可信源安装失败；未授权公网 fallback。设置 ALLOW_PUBLIC_NPM=1 后可重试。"
+  local allow_public_fallback
+  allow_public_fallback="$(python3 "$PROJECT_DIR/mcp_server/local_config.py" get allow_public_npm_fallback)" || exit 2
+  if [ "$allow_public_fallback" != "1" ]; then
+    c_err "本机 npm 源安装失败，且未允许官方源回退。可通过本机配置工具调整策略。"
     [ "$DRY_RUN" = "1" ] || exit 1
     return
   fi
   c_warn "仅对驱动安装命令临时使用公网 npm 源。"
-  if run "npm_config_registry=\"${PUBLIC_REGISTRY}\" appium driver install ${APPIUM_DRIVER}"; then
+  if [ "$DRY_RUN" = "1" ]; then
+    printf "\033[90m(dry-run) appium driver install %s (官方源回退)\033[0m\n" "$APPIUM_DRIVER"
+    return 0
+  fi
+  if npm_config_registry="$PUBLIC_REGISTRY" appium driver install "$APPIUM_DRIVER"; then
     c_ok "xcuitest 驱动安装完成(公网 fallback，本机全局配置未改变)。"
     return 0
   fi
@@ -276,12 +254,24 @@ summary() {
 
 # ── main ──────────────────────────────────────────────────────────────────────
 main() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --check) CHECK_ONLY=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      --help|-h)
+        printf '用法: bash scripts/01_install_appium.sh [--check] [--dry-run]\n'
+        return 0
+        ;;
+      *) c_err "未知参数: $arg"; return 2 ;;
+    esac
+  done
   c_step "Appium + WDA 安装(ios-verification-toolkit / 第一步)"
   [ "$DRY_RUN" = "1" ] && c_warn "DRY_RUN 模式:只打印命令,不实际执行。"
 
   check_prereqs
 
-  if [ "${1:-}" = "--check" ]; then
+  if [ "$CHECK_ONLY" = "1" ]; then
     c_info "--check 模式:仅体检,不安装。"
     setup_registry
     exit 0

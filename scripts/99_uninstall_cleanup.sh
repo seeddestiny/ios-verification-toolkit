@@ -7,8 +7,8 @@
 # 清理范围:
 #   1. Appium 全局 npm 包
 #   2. Appium 驱动 & 缓存目录 ~/.appium
-#   3. 仅在显式给出原可信源时检查旧版本可能留下的 npm registry 配置
-#   4. ~/.npmrc 安全检查(不打印内容)
+#   3. 保留用户 npm registry 配置(本工具从不修改)
+#   4. ~/.npmrc 安全检查(不打印内容、不修改非空文件)
 #   5. 设备上的 WDA App(WebDriverAgentRunner,运行时临时装的)
 #   6. 本工程产生的运行时缓存(截图 / 日志 / 临时文件)
 #   7. 指向本仓库的共享 Skill 安装链接
@@ -18,7 +18,7 @@
 #   bash 99_uninstall_cleanup.sh                # 交互式,逐项确认
 #   bash 99_uninstall_cleanup.sh --yes          # 不询问,全部清理(保留 brew 包)
 #   bash 99_uninstall_cleanup.sh --yes --purge-brew   # 连 libimobiledevice 一起卸
-#   DRY_RUN=1 bash 99_uninstall_cleanup.sh      # 只打印将执行的操作,不实际执行
+#   bash 99_uninstall_cleanup.sh --dry-run      # 只打印将执行的操作,不实际执行
 #
 # 注意:本脚本只清理本工具引入的东西,不会动你的 Xcode / 证书 / node 本身。
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,12 +26,11 @@
 set -uo pipefail   # 不用 -e:清理脚本应尽量跑完所有步骤,单步失败不中断
 
 # ── 配置 ──────────────────────────────────────────────────────────────────────
-KNOWN_REGISTRY="${IOS_MCP_NPM_REGISTRY:-}"
 DEVICE_UDID="${IOS_MCP_UDID:-${DEVICE_UDID:-}}" # 留空则按统一规则发现；多台时不静默选第一台
-WDA_BUNDLE_PREFIX="${WDA_BUNDLE_PREFIX:-WebDriverAgentRunner}"  # 匹配设备上的 WDA
+WDA_BUNDLE_PREFIX="WebDriverAgentRunner"  # 匹配设备上的 WDA
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_ROOT="$(python3 "$PROJECT_DIR/mcp_server/runtime_paths.py" root)" || exit 2
-DRY_RUN="${DRY_RUN:-0}"
+DRY_RUN=0
 ASSUME_YES=0
 PURGE_BREW=0
 
@@ -98,24 +97,10 @@ remove_appium_home() {
   fi
 }
 
-# ── 3. 还原旧版本可能写入的 npm registry ────────────────────────────────────
+# ── 3. 保留用户 npm registry ────────────────────────────────────────────────
 restore_registry() {
-  c_step "3. 还原 npm registry"
-  local current
-  current="$(npm config get registry 2>/dev/null || echo unknown)"
-  if [ -z "$KNOWN_REGISTRY" ]; then
-    c_info "未设置 IOS_MCP_NPM_REGISTRY，不推测或修改用户现有 npm 配置。"
-    return 0
-  fi
-  if [ "$current" = "$KNOWN_REGISTRY" ] || [ "$current" = "${KNOWN_REGISTRY%/}/" ]; then
-    if confirm "删除旧版本写入的 npm registry 配置并回落到 npm 默认源?"; then
-      # 用 delete 让 npm 回落到内置默认,比硬写公网地址更"干净"
-      run "npm config delete registry"
-      c_ok "registry 配置已删除,npm 回落到内置默认源。"
-    else c_info "保留当前 registry 设置。"; fi
-  else
-    c_ok "当前 registry 与 IOS_MCP_NPM_REGISTRY 不一致，保持不动。"
-  fi
+  c_step "3. 保留 npm registry"
+  c_ok "安装器只读取本机 npm 有效配置，从不写入；卸载时保持不动。"
 }
 
 # ── 4. 清理 ~/.npmrc 中本工具写入的项 ─────────────────────────────────────────
@@ -258,6 +243,7 @@ main() {
     case "$arg" in
       --yes|-y)      ASSUME_YES=1 ;;
       --purge-brew)  PURGE_BREW=1 ;;
+      --dry-run)     DRY_RUN=1 ;;
       --help|-h)     usage; exit 0 ;;
       *) c_warn "未知参数: $arg" ;;
     esac

@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from mcp_server.wda_bundle_id import build_wda_bundle_id
 
@@ -41,6 +42,16 @@ class WdaBundleIdTests(unittest.TestCase):
                 {"IOS_MCP_WDA_BUNDLE_ID": "invalid bundle id"},
                 machine_seed="ignored",
             )
+
+    @mock.patch("mcp_server.wda_bundle_id.load_local_config")
+    def test_machine_config_can_keep_existing_wda_bundle(self, load_config):
+        load_config.return_value = {
+            "wda_bundle_id": "com.example.existing.WebDriverAgentRunner"
+        }
+        self.assertEqual(
+            build_wda_bundle_id(machine_seed="ignored"),
+            "com.example.existing.WebDriverAgentRunner",
+        )
 
 
 if __name__ == "__main__":

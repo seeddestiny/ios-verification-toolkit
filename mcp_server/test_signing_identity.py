@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from mcp_server.signing_identity import (
     SigningIdentity,
@@ -99,6 +100,15 @@ class SigningIdentityTests(unittest.TestCase):
     def test_invalid_explicit_team_id_is_rejected(self):
         with self.assertRaises(ValueError):
             resolve_team_id({"IOS_MCP_TEAM_ID": "invalid"}, identities=[])
+
+    @mock.patch("mcp_server.signing_identity.load_local_config")
+    def test_machine_config_can_fix_team_without_cli_override(self, load_config):
+        load_config.return_value = {"signing_team_id": "FGHIJ67890"}
+        identities = [
+            SigningIdentity("Apple Development: A (ABCDE12345)", "ABCDE12345"),
+            SigningIdentity("Apple Development: B (FGHIJ67890)", "FGHIJ67890"),
+        ]
+        self.assertEqual(resolve_team_id(identities=identities), "FGHIJ67890")
 
 
 if __name__ == "__main__":

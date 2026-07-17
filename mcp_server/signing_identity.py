@@ -14,9 +14,11 @@ from dataclasses import dataclass
 
 try:
     from .env_sanitizer import sanitized_env
+    from .local_config import load_local_config
     from .runtime_paths import ensure_runtime_paths, runtime_paths
 except ImportError:
     from env_sanitizer import sanitized_env
+    from local_config import load_local_config
     from runtime_paths import ensure_runtime_paths, runtime_paths
 
 
@@ -104,7 +106,7 @@ def discover_existing_wda_team_ids(
 
 def _validate_team_id(value: str) -> str:
     if not _TEAM_ID_PATTERN.fullmatch(value):
-        raise ValueError("IOS_MCP_TEAM_ID 必须是 10 位大写字母或数字")
+        raise ValueError("签名 Team ID 必须是 10 位大写字母或数字")
     return value
 
 
@@ -154,6 +156,11 @@ def candidate_team_ids(
     explicit = environment.get("IOS_MCP_TEAM_ID", "").strip()
     if explicit:
         return [_validate_team_id(explicit)]
+    configured = ""
+    if source is None:
+        configured = str(load_local_config().get("signing_team_id") or "").strip()
+    if configured:
+        return [_validate_team_id(configured)]
 
     available = list(identities) if identities is not None else discover_signing_identities(environment)
     # 保留 Keychain 的本机发现顺序；不要用 Team ID 字典序制造伪优先级。
@@ -215,7 +222,7 @@ def resolve_certificate_common_name(
     )
     matches = [identity.common_name for identity in available if identity.team_id == team_id]
     if not matches:
-        raise ValueError("未找到 IOS_MCP_TEAM_ID 对应的 Apple Development 证书")
+        raise ValueError("未找到本机所选 Team ID 对应的 Apple Development 证书")
     return matches[0]
 
 

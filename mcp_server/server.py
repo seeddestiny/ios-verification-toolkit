@@ -48,7 +48,7 @@ except ImportError:
     from wda_bundle_id import build_wda_bundle_id
     from xcode_resolver import resolve_developer_dir
 
-# ── 配置(可用环境变量覆盖)──────────────────────────────────────────────────
+# ── 进程内部运行参数(不作为用户命令接口)────────────────────────────────────
 APPIUM_HOST = os.environ.get("IOS_MCP_APPIUM_HOST", "127.0.0.1")   # 严格保密:仅本机
 APPIUM_PORT = int(os.environ.get("IOS_MCP_APPIUM_PORT", "4723"))
 APPIUM_BASE = f"http://{APPIUM_HOST}:{APPIUM_PORT}"

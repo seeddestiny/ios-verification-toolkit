@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from unittest import mock
 
@@ -59,6 +60,16 @@ class XcodeResolverTests(unittest.TestCase):
                 resolve_developer_dir(
                     "xcodebuild", {"DEVELOPER_DIR": directory}, candidates=[]
                 )
+
+    @mock.patch("mcp_server.xcode_resolver.load_local_config")
+    def test_machine_config_precedes_automatic_discovery(self, load_config):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {}, clear=True):
+            developer = _developer_dir(directory, "XcodeConfigured.app")
+            load_config.return_value = {"xcode_developer_dir": str(developer)}
+            self.assertEqual(
+                resolve_developer_dir("xcodebuild", candidates=[]),
+                developer.resolve(),
+            )
 
 
 if __name__ == "__main__":

@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+try:
+    from .local_config import load_local_config
+except ImportError:
+    from local_config import load_local_config
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,14 +32,16 @@ def runtime_paths(
 ) -> RuntimePaths:
     """Return runtime paths without creating them.
 
-    ``IOS_MCP_RUNTIME_DIR`` may be absolute or relative to ``<project>/.runtime``.
-    The default is ``<project>/.runtime``. Relative overrides therefore remain
-    covered by the project's ignore rule.
+    The default is ``<project>/.runtime``. A machine-local configured relative
+    path stays below that ignored directory; an absolute path must be outside
+    the project or point back into ``.runtime``.
     """
     env = os.environ if source is None else source
     project = Path(project_root or PROJECT_ROOT).expanduser().resolve()
     default_root = (project / ".runtime").resolve()
     configured = env.get("IOS_MCP_RUNTIME_DIR", "").strip()
+    if not configured and source is None:
+        configured = str(load_local_config().get("runtime_dir") or "").strip()
     configured_is_relative = False
     if configured:
         root = Path(configured).expanduser()
@@ -45,12 +52,12 @@ def runtime_paths(
         root = default_root
     root = root.resolve()
     if root == project or root == Path(root.anchor):
-        raise ValueError("IOS_MCP_RUNTIME_DIR 必须指向独立子目录，不能是项目根目录或文件系统根目录")
+        raise ValueError("运行时目录必须是独立子目录，不能是项目根目录或文件系统根目录")
     if configured_is_relative:
         try:
             root.relative_to(default_root)
         except ValueError as exc:
-            raise ValueError("相对 IOS_MCP_RUNTIME_DIR 不能跳出 .runtime/") from exc
+            raise ValueError("相对运行时目录不能跳出 .runtime/") from exc
     try:
         root.relative_to(project)
     except ValueError:
@@ -59,7 +66,7 @@ def runtime_paths(
         try:
             root.relative_to(default_root)
         except ValueError as exc:
-            raise ValueError("项目内的 IOS_MCP_RUNTIME_DIR 必须位于 .runtime/ 下") from exc
+            raise ValueError("项目内的运行时目录必须位于 .runtime/ 下") from exc
     return RuntimePaths(
         root=root,
         logs=root / "logs",

@@ -37,10 +37,13 @@ export IOS_MCP_UDID="$DEVICE_UDID"
 
 # 可选目标 App。label 使用逗号分隔；均不设置时只验证截图与 UI 层级。
 TARGET_LABELS=()
-if [ -n "${IOS_MCP_TARGET_LABELS:-}" ]; then
-  IFS=',' read -r -a TARGET_LABELS <<< "$IOS_MCP_TARGET_LABELS"
+CONFIGURED_TARGET_LABELS="$(python3 "$PROJECT_DIR/mcp_server/local_config.py" get target_labels)" || exit 2
+TARGET_LABEL_VALUE="${IOS_MCP_TARGET_LABELS:-$CONFIGURED_TARGET_LABELS}"
+if [ -n "$TARGET_LABEL_VALUE" ]; then
+  IFS=',' read -r -a TARGET_LABELS <<< "$TARGET_LABEL_VALUE"
 fi
-TARGET_BUNDLE_ID="${IOS_MCP_TARGET_BUNDLE:-${TARGET_BUNDLE_ID:-}}"
+CONFIGURED_TARGET_BUNDLE="$(python3 "$PROJECT_DIR/mcp_server/local_config.py" get target_bundle_id)" || exit 2
+TARGET_BUNDLE_ID="${IOS_MCP_TARGET_BUNDLE:-${TARGET_BUNDLE_ID:-$CONFIGURED_TARGET_BUNDLE}}"
 
 log(){ printf "\033[36m[E2E]\033[0m %s\n" "$*"; }
 ok(){  printf "\033[32m[ OK]\033[0m %s\n" "$*"; }
@@ -160,7 +163,7 @@ if [ -n "$TARGET_BUNDLE_ID" ]; then
     curl -s "$BASE/session/$SESSION_ID/source" -o "$STATE_DIR/page_source.xml" 2>/dev/null
   fi
 else
-  log "未设置 IOS_MCP_TARGET_BUNDLE，跳过目标 App 激活。"
+  log "未配置目标 App，跳过 App 激活。"
 fi
 
 # ── 5. 再截图确认 + 导出当前界面图层(UI树)────────────────────────────────

@@ -113,7 +113,7 @@ python3 "$IOS_APP_TOOL" launch \
 
 - 启动环境只允许验证 marker/场景开关；工具拒绝名称疑似 token、secret、password 等凭据变量。
 - 失败详情和 devicectl JSON 只写入 `.runtime`；不要将这些路径中的产物加入目标业务仓库。
-- Xcode 选择顺序是显式 `DEVELOPER_DIR`、有效的 `xcode-select`、本机唯一完整 Xcode；多份 Xcode 有歧义时要求显式选择，不写死版本路径。
+- Xcode 默认使用有效的 `xcode-select`，否则选择本机唯一完整 Xcode；多份 Xcode 有歧义时调用工具仓库的交互式本机配置工具，不修改系统全局选择。
 
 ## 5. WDA UI 工具
 

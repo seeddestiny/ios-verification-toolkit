@@ -3,6 +3,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from runtime_paths import ensure_runtime_paths, runtime_paths
 
@@ -65,6 +66,13 @@ class RuntimePathsTests(unittest.TestCase):
                     {"IOS_MCP_RUNTIME_DIR": "../../artifacts"},
                     project_root=project,
                 )
+
+    @mock.patch("runtime_paths.load_local_config")
+    def test_machine_config_is_used_for_normal_calls(self, load_config):
+        with tempfile.TemporaryDirectory() as project:
+            load_config.return_value = {"runtime_dir": "private/run"}
+            paths = runtime_paths(project_root=project)
+            self.assertEqual(paths.root, Path(project).resolve() / ".runtime/private/run")
 
 
 if __name__ == "__main__":

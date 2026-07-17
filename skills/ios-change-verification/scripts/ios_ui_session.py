@@ -40,13 +40,7 @@ SUPPORTED_TOOLS = {
     "tap",
 }
 SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-DEFAULT_SERVER = (
-    Path.home()
-    / "Documents"
-    / "ios-verification-toolkit"
-    / "mcp_server"
-    / "server.py"
-)
+DEFAULT_SERVER = Path(__file__).resolve().parents[3] / "mcp_server" / "server.py"
 
 
 def _validate_session(value: str) -> str:
@@ -64,12 +58,7 @@ def _runtime_paths(session_name: str) -> tuple[Path, Path, Path]:
 
 
 def _server_path() -> Path:
-    configured = (
-        os.environ.get("IOS_UI_MCP_SERVER")
-        or os.environ.get("IOS_DEVICE_MCP_SERVER")
-        or str(DEFAULT_SERVER)
-    )
-    return Path(configured).expanduser()
+    return DEFAULT_SERVER
 
 
 def _run_discovery(arguments: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
