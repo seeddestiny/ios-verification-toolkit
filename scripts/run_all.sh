@@ -228,10 +228,12 @@ run_stage2(){
       need_manual "$(cat <<'EOF'
 [脚本已自动尝试所有本机有效开发团队，但都无法完成 WDA 签名]
   WDA 工程已使用本轮选中的 Xcode 自动打开。
-  请进入 Xcode → Settings(Cmd+,)→ Accounts，确认至少一个开发账号处于登录状态；
-  如有红色提示，完成密码和双因素重新登录。无需手工查询或输入 Team ID。
-  然后在 TARGETS → WebDriverAgentRunner → Signing & Capabilities 中确认
-  Automatically manage signing 已开启；完成后回到终端输入 Done。
+  现在请在 Xcode 中手动完成一次 WDA 签名构建：
+  1. Settings(Cmd+,)→ Accounts：确认开发账号已登录；如有红色提示，完成重新登录和双因素验证。
+  2. TARGETS → WebDriverAgentRunner → Signing & Capabilities：选择可用 Team；
+     可继续使用 Automatically manage signing，由 Xcode 生成本机 provisioning profile。
+  3. 选择当前连接的真机作为运行目标，执行 Product → Test(Cmd+U)，直到签名构建成功。
+  4. 完成后回到终端输入 Done；脚本会读取本机签名结果并自动重试，无需输入 Team ID。
 EOF
 )"
       c_info "将重新发现候选并自动重试..."
