@@ -26,12 +26,14 @@
 set -uo pipefail
 umask 077
 
-# 清除可能污染 xcodebuild 的编译器环境变量。
-unset CC CXX
-export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}"
-
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$DIR/.." && pwd)"
+
+# 清除可能污染 xcodebuild 的编译器环境变量。
+unset CC CXX
+DEVELOPER_DIR="$(python3 "$PROJECT_DIR/mcp_server/xcode_resolver.py" --tool xcodebuild)" || exit 2
+export DEVELOPER_DIR
+
 source "$DIR/lib/sanitize_env.sh"
 # 确保私有运行时目录存在(卸载后可能被删),否则重定向写日志会失败。
 RUNTIME_ROOT="$(python3 "$PROJECT_DIR/mcp_server/runtime_paths.py" root --create)" || exit 2

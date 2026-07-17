@@ -16,11 +16,13 @@
 set -uo pipefail
 umask 077
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # 清除可能污染 Appium 子进程 xcodebuild 的编译器环境变量。
 unset CC CXX
-export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}"
+DEVELOPER_DIR="$(python3 "$PROJECT_DIR/mcp_server/xcode_resolver.py" --tool xcodebuild)" || exit 2
+export DEVELOPER_DIR
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$PROJECT_DIR/scripts/lib/sanitize_env.sh"
 HOST=127.0.0.1; PORT=4723; BASE="http://$HOST:$PORT"
 RUNTIME_ROOT="$(python3 "$PROJECT_DIR/mcp_server/runtime_paths.py" root --create)" || exit 2

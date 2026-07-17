@@ -39,17 +39,25 @@ try:
     from .runtime_paths import ensure_runtime_paths
     from .signing_identity import resolve_team_id
     from .wda_bundle_id import build_wda_bundle_id
+    from .xcode_resolver import resolve_developer_dir
 except ImportError:
     from device_discovery import resolve_target_device
     from env_sanitizer import sanitized_env
     from runtime_paths import ensure_runtime_paths
     from signing_identity import resolve_team_id
     from wda_bundle_id import build_wda_bundle_id
+    from xcode_resolver import resolve_developer_dir
 
 # ── 配置(可用环境变量覆盖)──────────────────────────────────────────────────
 APPIUM_HOST = os.environ.get("IOS_MCP_APPIUM_HOST", "127.0.0.1")   # 严格保密:仅本机
 APPIUM_PORT = int(os.environ.get("IOS_MCP_APPIUM_PORT", "4723"))
 APPIUM_BASE = f"http://{APPIUM_HOST}:{APPIUM_PORT}"
+
+# 在设备发现前固定本进程使用的完整 Xcode；不修改全局 xcode-select。
+DEVELOPER_DIR = str(resolve_developer_dir("xcodebuild"))
+for _var in ("CC", "CXX"):
+    os.environ.pop(_var, None)
+os.environ["DEVELOPER_DIR"] = DEVELOPER_DIR
 
 TARGET_DEVICE = resolve_target_device()
 DEVICE_UDID = TARGET_DEVICE.udid  # Appium 使用的硬件 UDID，运行时动态选择
@@ -59,18 +67,6 @@ TUNNEL_REGISTRY_PORT = int(os.environ.get("IOS_MCP_TUNNEL_REGISTRY_PORT", "42314
 # (设备上没有 WDA 时用 true 会连不上 8100)。装好并常驻后可设 true 提速。
 USE_PREBUILT_WDA = os.environ.get("IOS_MCP_USE_PREBUILT_WDA", "false").lower() == "true"
 USE_PREINSTALLED_WDA = os.environ.get("IOS_MCP_USE_PREINSTALLED_WDA", "auto").strip().lower()
-DEVELOPER_DIR = os.environ.get("DEVELOPER_DIR", "").strip()
-if not DEVELOPER_DIR:
-    _xcode_select = subprocess.run(
-        ["xcode-select", "-p"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        env=sanitized_env(),
-    )
-    DEVELOPER_DIR = _xcode_select.stdout.strip()
-    if _xcode_select.returncode != 0 or not DEVELOPER_DIR:
-        raise RuntimeError("无法解析 Xcode Developer 目录，请设置 DEVELOPER_DIR")
 
 if USE_PREINSTALLED_WDA not in {"auto", "true", "false"}:
     raise ValueError("IOS_MCP_USE_PREINSTALLED_WDA 仅支持 auto、true 或 false")
@@ -79,11 +75,6 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNTIME_PATHS = ensure_runtime_paths()
 LOG_DIR = str(RUNTIME_PATHS.logs)
 APPIUM_SERVER_LOG = os.path.join(LOG_DIR, "appium-server.log")
-
-# ── 关键:清除可能污染构建的编译器环境变量,并固定 DEVELOPER_DIR ──────────────
-for _var in ("CC", "CXX"):
-    os.environ.pop(_var, None)
-os.environ["DEVELOPER_DIR"] = DEVELOPER_DIR
 
 mcp = FastMCP("ios_ui_automation")
 

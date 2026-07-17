@@ -20,6 +20,8 @@
 
 set -euo pipefail
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # ── 可配置项 ────────────────────────────────────────────────────────────────
 PUBLIC_REGISTRY="https://registry.npmjs.org/"
 TRUSTED_REGISTRY=""
@@ -66,10 +68,14 @@ check_prereqs() {
     c_warn "brew 未安装,后续 libimobiledevice 将无法通过 brew 安装。"
   fi
 
-  if xcrun -f xcodebuild >/dev/null 2>&1; then
-    c_ok "Xcode 命令行: $(xcodebuild -version 2>/dev/null | head -1)"
+  local resolved_developer_dir=""
+  resolved_developer_dir="$(python3 "$PROJECT_DIR/mcp_server/xcode_resolver.py" --tool xcodebuild 2>/dev/null || true)"
+  if [ -n "$resolved_developer_dir" ]; then
+    DEVELOPER_DIR="$resolved_developer_dir"
+    export DEVELOPER_DIR
+    c_ok "Xcode 命令行: $("$DEVELOPER_DIR/usr/bin/xcodebuild" -version 2>/dev/null | head -1)"
   else
-    c_warn "未检测到 xcodebuild,WDA 运行时构建会失败(需要完整 Xcode)。"
+    c_warn "未检测到唯一可用的完整 Xcode；如安装了多份，请仅为本次命令设置 DEVELOPER_DIR。"
   fi
 
   [ "$ok" = "1" ] || { c_err "前置工具缺失,终止。"; exit 1; }

@@ -21,12 +21,14 @@
 set -uo pipefail
 umask 077
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # ── 清除可能污染构建的编译器环境变量 ────────────────────────────────────────
 unset CC CXX
-export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}"
+DEVELOPER_DIR="$(python3 "$PROJECT_DIR/mcp_server/xcode_resolver.py" --tool xcodebuild)" || exit 2
+export DEVELOPER_DIR
 
 # ── 配置(复用既有 WDA 签名团队；仍有歧义时需 IOS_MCP_TEAM_ID)──────────────
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEAM_ID="$(python3 "$PROJECT_DIR/mcp_server/signing_identity.py" team-id)" || exit 2
 CERT_CN="$(IOS_MCP_TEAM_ID="$TEAM_ID" python3 "$PROJECT_DIR/mcp_server/signing_identity.py" certificate-name)" || exit 2
 WDA_BUNDLE_ID="$(python3 "$PROJECT_DIR/mcp_server/wda_bundle_id.py")" || exit 2
